@@ -2,6 +2,28 @@
 /target/
 /dist/
 
-# Tool state
+# AI assistant state and instructions
+/.claude/
 /.codegraph/
 /.serena/
+/.hindsight/
+/.codex/
+/.cursor/
+/.windsurf/
+/.gemini/
+/.continue/
+/.cline/
+/.roo/
+/.kiro/
+/.junie/
+/.amazonq/
+/.github/copilot-instructions.md
+/.cursorrules
+/.windsurfrules
+/.clinerules
+/.aider*
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+GEMINI.md
+.mcp.json
