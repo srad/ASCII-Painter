@@ -148,6 +148,31 @@ enum Status {
     Error(String),
 }
 
+/// A short-lived message in the corner of the window, shown when an export finishes.
+struct Toast {
+    kind: ToastKind,
+    text: String,
+    /// Shown on hover, e.g. the full path of the saved file.
+    detail: Option<String>,
+    created: Instant,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ToastKind {
+    Success,
+    Error,
+}
+
+impl ToastKind {
+    /// How long the toast stays up; errors linger so they can be read.
+    fn lifetime(self) -> Duration {
+        match self {
+            ToastKind::Success => Duration::from_secs(6),
+            ToastKind::Error => Duration::from_secs(12),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default)]
 struct Persisted {
@@ -178,6 +203,7 @@ pub struct AsciiPainterApp {
     output_format: OutputFormat,
     export: Option<Export>,
     status: Option<Status>,
+    toast: Option<Toast>,
     confirm_overwrite: Option<PathBuf>,
 }
 
@@ -305,6 +331,7 @@ impl AsciiPainterApp {
             output_format: OutputFormat::Png,
             export: None,
             status: None,
+            toast: None,
             confirm_overwrite: None,
         }
     }
@@ -522,14 +549,73 @@ impl AsciiPainterApp {
         match finished {
             Some(Ok(path)) => {
                 self.status = Some(Status::Info(format!("Saved {}", path.display())));
+                let name = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into());
+                self.toast = Some(Toast {
+                    kind: ToastKind::Success,
+                    text: format!("Export saved: {name}"),
+                    detail: Some(path.display().to_string()),
+                    created: Instant::now(),
+                });
                 self.export = None;
             }
             Some(Err(e)) => {
-                self.status =
-                    Some(if e == "cancelled" { Status::Info("Export cancelled.".into()) } else { Status::Error(e) });
+                if e == "cancelled" {
+                    self.status = Some(Status::Info("Export cancelled.".into()));
+                } else {
+                    self.toast = Some(Toast {
+                        kind: ToastKind::Error,
+                        text: format!("Export failed: {e}"),
+                        detail: None,
+                        created: Instant::now(),
+                    });
+                    self.status = Some(Status::Error(e));
+                }
                 self.export = None;
             }
             None => ctx.request_repaint_after(Duration::from_millis(100)),
+        }
+    }
+
+    /// Draws the export result toast in the top-right corner, below the toolbar. It fades out
+    /// at the end of its lifetime and can be dismissed early.
+    fn toast_ui(&mut self, ctx: &egui::Context) {
+        const FADE: Duration = Duration::from_millis(400);
+        let Some(toast) = &self.toast else { return };
+        let lifetime = toast.kind.lifetime();
+        let age = toast.created.elapsed();
+        if age >= lifetime {
+            self.toast = None;
+            return;
+        }
+        let opacity = ((lifetime - age).as_secs_f32() / FADE.as_secs_f32()).min(1.0);
+        let (color, icon) = match toast.kind {
+            ToastKind::Success => (theme::SUCCESS, "✔"),
+            ToastKind::Error => (theme::ERROR, "✖"),
+        };
+        let mut dismissed = false;
+        egui::Area::new(egui::Id::unique("export-toast"))
+            .anchor(egui::Align2::RIGHT_TOP, [-20.0, 108.0])
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                ui.set_opacity(opacity);
+                theme::toast_frame(color).show(ui, |ui| {
+                    ui.set_max_width(380.0);
+                    ui.horizontal_top(|ui| {
+                        ui.label(RichText::new(icon).color(color).strong());
+                        let text = ui.label(&toast.text);
+                        if let Some(detail) = &toast.detail {
+                            text.on_hover_text(detail);
+                        }
+                        if ui.small_button("✕").clicked() {
+                            dismissed = true;
+                        }
+                    });
+                });
+            });
+        if dismissed {
+            self.toast = None;
+        } else {
+            ctx.request_repaint_after(Duration::from_millis(50));
         }
     }
 
@@ -923,6 +1009,105 @@ impl AsciiPainterApp {
     }
 }
 
+/// The window's own title bar: drag to move, double-click to maximize, and the three window buttons.
+fn title_bar(ui: &mut Ui, maximized: bool) {
+    const HEIGHT: f32 = 30.0;
+    let ctx = ui.ctx().clone();
+    // Allocated first, so the label and buttons added afterwards sit on top of it.
+    let (rect, drag) = ui.allocate_exact_size(egui::vec2(ui.available_width(), HEIGHT), egui::Sense::click_and_drag());
+    if drag.drag_started_by(egui::PointerButton::Primary) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+    if drag.double_clicked() {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+    }
+    let row = egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center));
+    ui.scope_builder(row, |ui| {
+        ui.label(RichText::new("ASCII Painter").small().weak());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let size = egui::vec2(44.0, HEIGHT);
+            if theme::window_button(ui, theme::WindowButton::Close, size).clicked() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            let toggle = if maximized { theme::WindowButton::Restore } else { theme::WindowButton::Maximize };
+            if theme::window_button(ui, toggle, size).clicked() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+            }
+            if theme::window_button(ui, theme::WindowButton::Minimize, size).clicked() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            }
+        });
+    });
+}
+
+/// Invisible grips around the window edge. An undecorated Windows window has no native resize
+/// border, so a drag on one hands the resize to the OS.
+fn resize_grips(ui: &mut Ui, window: egui::Rect) {
+    use egui::{CursorIcon, Rect, pos2, vec2, viewport::ResizeDirection};
+    const EDGE: f32 = 6.0;
+    const CORNER: f32 = 12.0;
+    let corner = vec2(CORNER, CORNER);
+    let grips = [
+        (
+            ResizeDirection::North,
+            Rect::from_min_max(
+                pos2(window.left() + CORNER, window.top()),
+                pos2(window.right() - CORNER, window.top() + EDGE),
+            ),
+            CursorIcon::ResizeNorth,
+        ),
+        (
+            ResizeDirection::South,
+            Rect::from_min_max(
+                pos2(window.left() + CORNER, window.bottom() - EDGE),
+                pos2(window.right() - CORNER, window.bottom()),
+            ),
+            CursorIcon::ResizeSouth,
+        ),
+        (
+            ResizeDirection::West,
+            Rect::from_min_max(
+                pos2(window.left(), window.top() + CORNER),
+                pos2(window.left() + EDGE, window.bottom() - CORNER),
+            ),
+            CursorIcon::ResizeWest,
+        ),
+        (
+            ResizeDirection::East,
+            Rect::from_min_max(
+                pos2(window.right() - EDGE, window.top() + CORNER),
+                pos2(window.right(), window.bottom() - CORNER),
+            ),
+            CursorIcon::ResizeEast,
+        ),
+        (ResizeDirection::NorthWest, Rect::from_min_size(window.left_top(), corner), CursorIcon::ResizeNorthWest),
+        (
+            ResizeDirection::NorthEast,
+            Rect::from_min_size(window.right_top() - vec2(CORNER, 0.0), corner),
+            CursorIcon::ResizeNorthEast,
+        ),
+        (
+            ResizeDirection::SouthWest,
+            Rect::from_min_size(window.left_bottom() - vec2(0.0, CORNER), corner),
+            CursorIcon::ResizeSouthWest,
+        ),
+        (
+            ResizeDirection::SouthEast,
+            Rect::from_min_size(window.right_bottom() - corner, corner),
+            CursorIcon::ResizeSouthEast,
+        ),
+    ];
+    for (index, (direction, rect, cursor)) in grips.into_iter().enumerate() {
+        let response = ui.interact(rect, ui.scope_id().with(("resize-grip", index)), egui::Sense::drag());
+        if response.hovered() || response.dragged() {
+            ui.ctx().set_cursor_icon(cursor);
+        }
+        if response.drag_started() {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::BeginResize(direction));
+        }
+    }
+}
+
 impl eframe::App for AsciiPainterApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
@@ -931,17 +1116,31 @@ impl eframe::App for AsciiPainterApp {
         self.poll_preview(&ctx);
         self.poll_export(&ctx);
 
+        let maximized = ctx.input(|i| {
+            let viewport = i.viewport();
+            viewport.maximized.unwrap_or(false) || viewport.fullscreen.unwrap_or(false)
+        });
         let style = ui.style().clone();
-        egui::Panel::top("toolbar").frame(theme::bar_frame(&style)).show(ui, |ui| self.toolbar(ui));
-        egui::Panel::bottom("export").frame(theme::bar_frame(&style)).show(ui, |ui| self.export_bar(ui));
-        egui::Panel::left("settings").frame(theme::side_frame(&style)).resizable(true).default_size(340.0).show(
-            ui,
-            |ui| {
-                ScrollArea::vertical().show(ui, |ui| self.side_panel(ui));
-            },
-        );
-        egui::CentralPanel::default().frame(theme::canvas_frame()).show(ui, |ui| self.central(ui));
+        egui::CentralPanel::default().frame(theme::window_frame()).show(ui, |ui| {
+            let window = ui.max_rect();
+            egui::Panel::top("titlebar").frame(theme::title_bar_frame()).show(ui, |ui| {
+                title_bar(ui, maximized);
+            });
+            egui::Panel::top("toolbar").frame(theme::bar_frame(&style)).show(ui, |ui| self.toolbar(ui));
+            egui::Panel::bottom("export").frame(theme::bar_frame(&style)).show(ui, |ui| self.export_bar(ui));
+            egui::Panel::left("settings").frame(theme::side_frame(&style)).resizable(true).default_size(340.0).show(
+                ui,
+                |ui| {
+                    ScrollArea::vertical().show(ui, |ui| self.side_panel(ui));
+                },
+            );
+            egui::CentralPanel::default().frame(theme::canvas_frame()).show(ui, |ui| self.central(ui));
+            if !maximized {
+                resize_grips(ui, window);
+            }
+        });
         self.overwrite_dialog(&ctx);
+        self.toast_ui(&ctx);
 
         if self.settings != self.seen_settings {
             self.settings = std::mem::take(&mut self.settings).sanitized();
