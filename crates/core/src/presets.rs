@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::CoreError;
-use crate::settings::{CharsetPreset, ColorMode, Detail, Dither, MappingMode, Settings};
+use crate::settings::{
+    CharsetPreset, ColorMode, Detail, Dither, MappingMode, PaletteKind, Polarity, RampOrder, Settings,
+};
 use crate::types::Rgb;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -101,6 +103,143 @@ pub fn builtin() -> Vec<Preset> {
             s.color.chroma_key = Some(Rgb::new(0x00, 0xff, 0x00));
             s.render.transparent_background = true;
         }),
+        preset("Game Boy LCD", |s| {
+            s.grid.columns = 80;
+            s.mapping = MappingMode::Quadrant;
+            s.tone.saturation = 0.0;
+            s.tone.contrast = 1.1;
+            s.tone.auto_levels = true;
+            s.color.mode = ColorMode::ForegroundBackground;
+            s.color.palette = PaletteKind::Custom;
+            s.color.custom_palette = vec![
+                Rgb::new(0x0f, 0x38, 0x0f),
+                Rgb::new(0x30, 0x62, 0x30),
+                Rgb::new(0x8b, 0xac, 0x0f),
+                Rgb::new(0x9b, 0xbc, 0x0f),
+            ];
+        }),
+        preset("CGA Pop", |s| {
+            s.grid.columns = 160;
+            s.mapping = MappingMode::Quadrant;
+            s.tone.contrast = 1.2;
+            s.tone.saturation = 1.35;
+            s.tone.auto_levels = true;
+            s.color.mode = ColorMode::ForegroundBackground;
+            s.color.palette = PaletteKind::Custom;
+            s.color.custom_palette = vec![
+                Rgb::new(0x00, 0x00, 0x00),
+                Rgb::new(0x55, 0xff, 0xff),
+                Rgb::new(0xff, 0x55, 0xff),
+                Rgb::new(0xff, 0xff, 0xff),
+            ];
+        }),
+        preset("Macintosh 1-Bit", |s| {
+            s.grid.columns = 160;
+            s.charset.preset = CharsetPreset::Custom;
+            s.charset.custom = " █".to_owned();
+            s.charset.order = RampOrder::AsWritten;
+            s.dither = Dither::Atkinson;
+            s.color.fg = Rgb::new(0x18, 0x18, 0x18);
+            s.color.bg = Rgb::new(0xf5, 0xf2, 0xe8);
+            s.tone.auto_levels = true;
+            s.tone.contrast = 1.1;
+            s.tone.denoise = 0.1;
+        }),
+        preset("Neon Outline", |s| {
+            s.grid.columns = 180;
+            s.mapping = MappingMode::Shape;
+            s.charset.preset = CharsetPreset::Printable;
+            s.color.fg = Rgb::new(0x31, 0xf7, 0xff);
+            s.color.bg = Rgb::BLACK;
+            s.tone.detail = Detail::EdgesOnly;
+            s.tone.edge_boost = 0.85;
+            s.tone.denoise = 0.4;
+            s.render.transparent_background = true;
+        }),
+        preset("ANSI 16 Terminal", |s| {
+            s.grid.columns = 80;
+            s.grid.cell_aspect_override = Some(0.5);
+            s.mapping = MappingMode::Shape;
+            s.charset.preset = CharsetPreset::Printable;
+            s.color.mode = ColorMode::ForegroundBackground;
+            s.color.palette = PaletteKind::Ansi16;
+            s.tone.auto_levels = true;
+            s.tone.saturation = 1.2;
+            s.tone.denoise = 0.15;
+            s.tone.sharpen = 0.2;
+        }),
+        preset("Synthwave Poster", |s| {
+            s.grid.columns = 120;
+            s.mapping = MappingMode::Quadrant;
+            s.tone.contrast = 1.25;
+            s.tone.saturation = 1.5;
+            s.tone.shadows = -0.15;
+            s.tone.highlights = 0.05;
+            s.tone.auto_levels = true;
+            s.color.mode = ColorMode::ForegroundBackground;
+            s.color.palette = PaletteKind::Custom;
+            s.color.custom_palette = vec![
+                Rgb::new(0x07, 0x00, 0x1f),
+                Rgb::new(0x2d, 0x0a, 0x57),
+                Rgb::new(0x7b, 0x2c, 0xbf),
+                Rgb::new(0xff, 0x2a, 0x6d),
+                Rgb::new(0x05, 0xd9, 0xe8),
+                Rgb::new(0xf9, 0xf8, 0x71),
+            ];
+        }),
+        preset("X-Ray Braille", |s| {
+            s.grid.columns = 200;
+            s.mapping = MappingMode::Braille;
+            s.dither = Dither::BlueNoise;
+            s.color.fg = Rgb::new(0xc7, 0xfa, 0xff);
+            s.color.bg = Rgb::new(0x02, 0x08, 0x17);
+            s.tone.polarity = Polarity::Inverted;
+            s.tone.auto_levels = true;
+            s.tone.contrast = 1.2;
+            s.tone.gamma = 1.1;
+            s.tone.denoise = 0.15;
+            s.tone.edge_boost = 0.25;
+        }),
+        preset("Ink Stamp", |s| {
+            s.grid.columns = 140;
+            s.charset.preset = CharsetPreset::Custom;
+            s.charset.custom = " █".to_owned();
+            s.charset.order = RampOrder::AsWritten;
+            s.dither = Dither::BlueNoise;
+            s.color.fg = Rgb::new(0x2b, 0x17, 0x0f);
+            s.color.bg = Rgb::new(0xf3, 0xe1, 0xb8);
+            s.tone.contrast = 1.6;
+            s.tone.black_point = 0.2;
+            s.tone.white_point = 0.8;
+            s.tone.denoise = 0.25;
+        }),
+        preset("Blueprint", |s| {
+            s.grid.columns = 180;
+            s.mapping = MappingMode::Shape;
+            s.charset.preset = CharsetPreset::Custom;
+            s.charset.custom = " ._-/\\|+X#".to_owned();
+            s.color.fg = Rgb::new(0xbd, 0xef, 0xff);
+            s.color.bg = Rgb::new(0x06, 0x2c, 0x4b);
+            s.tone.detail = Detail::EdgesOnly;
+            s.tone.contrast = 1.15;
+            s.tone.gamma = 1.05;
+            s.tone.edge_boost = 0.65;
+            s.tone.denoise = 0.4;
+        }),
+        preset("Typewriter Sepia", |s| {
+            s.grid.columns = 120;
+            s.charset.preset = CharsetPreset::Custom;
+            s.charset.custom = " .,:;i1tfLCG08@".to_owned();
+            s.charset.order = RampOrder::AsWritten;
+            s.dither = Dither::Atkinson;
+            s.color.fg = Rgb::new(0x3a, 0x26, 0x18);
+            s.color.bg = Rgb::new(0xea, 0xd8, 0xb0);
+            s.tone.auto_levels = true;
+            s.tone.contrast = 1.1;
+            s.tone.gamma = 1.05;
+            s.tone.denoise = 0.15;
+            s.tone.sharpen = 0.2;
+        }),
     ]
 }
 
@@ -152,7 +291,11 @@ mod tests {
     fn builtin_names_are_unique_and_settings_valid() {
         let presets = builtin();
         for (i, p) in presets.iter().enumerate() {
-            assert!(presets[i + 1..].iter().all(|q| q.name != p.name));
+            assert!(
+                presets[i + 1..].iter().all(|q| !q.name.eq_ignore_ascii_case(&p.name)),
+                "duplicate built-in preset name: {}",
+                p.name
+            );
             assert_eq!(p.settings.clone().sanitized(), p.settings, "{}", p.name);
         }
     }

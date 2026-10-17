@@ -549,27 +549,33 @@ impl AsciiPainterApp {
     }
 
     fn presets_ui(&mut self, ui: &mut Ui) {
+        let builtin_presets = presets::builtin();
+        let preset_count = builtin_presets.len() + self.user_presets.len();
         let label = if self.preset_modified() && self.preset_name != CUSTOM_PRESET {
             format!("{} (modified)", self.preset_name)
         } else {
             self.preset_name.clone()
         };
         let mut chosen = None;
-        ComboBox::from_label("preset").selected_text(label).width(200.0).show_ui(ui, |ui| {
-            for preset in presets::builtin() {
-                if ui.selectable_label(preset.name == self.preset_name, &preset.name).clicked() {
-                    chosen = Some(preset);
+        ComboBox::from_label(format!("preset ({preset_count})"))
+            .selected_text(label)
+            .width(200.0)
+            .height(480.0)
+            .show_ui(ui, |ui| {
+                for preset in builtin_presets {
+                    if ui.selectable_label(preset.name == self.preset_name, &preset.name).clicked() {
+                        chosen = Some(preset);
+                    }
                 }
-            }
-            if !self.user_presets.is_empty() {
-                ui.separator();
-            }
-            for preset in &self.user_presets {
-                if ui.selectable_label(preset.name == self.preset_name, format!("★ {}", preset.name)).clicked() {
-                    chosen = Some(preset.clone());
+                if !self.user_presets.is_empty() {
+                    ui.separator();
                 }
-            }
-        });
+                for preset in &self.user_presets {
+                    if ui.selectable_label(preset.name == self.preset_name, format!("★ {}", preset.name)).clicked() {
+                        chosen = Some(preset.clone());
+                    }
+                }
+            });
         if let Some(preset) = chosen {
             self.apply_preset(preset);
         }
