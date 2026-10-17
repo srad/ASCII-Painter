@@ -9,7 +9,7 @@ use ascii_painter_core::render::text::FRAME_SEPARATOR;
 use ascii_painter_core::{ConvertInput, Converter, Settings, Size2};
 use ascii_painter_video::decode::{FrameReader, decode_size, extract_frame};
 use ascii_painter_video::{
-    ExportEvent, ExportJob, ExportRequest, FfmpegPaths, TimeRange, VideoError, VideoFormat, probe,
+    EncodeQuality, ExportEvent, ExportJob, ExportRequest, FfmpegPaths, TimeRange, VideoError, VideoFormat, probe,
 };
 
 fn tools() -> Option<FfmpegPaths> {
@@ -85,6 +85,17 @@ fn export(
     format: VideoFormat,
     settings: Settings,
 ) -> Result<PathBuf, VideoError> {
+    export_with_quality(paths, input, output, format, settings, EncodeQuality::default())
+}
+
+fn export_with_quality(
+    paths: &FfmpegPaths,
+    input: &Path,
+    output: &Path,
+    format: VideoFormat,
+    settings: Settings,
+    quality: EncodeQuality,
+) -> Result<PathBuf, VideoError> {
     let info = probe(paths, input).unwrap();
     let job = ExportJob::start(
         paths.clone(),
@@ -95,6 +106,7 @@ fn export(
             settings,
             range: TimeRange::default(),
             info,
+            quality,
         },
     );
     loop {
@@ -103,6 +115,21 @@ fn export(
             ExportEvent::Progress(_) => {}
         }
     }
+}
+
+#[test]
+fn every_quality_exports_a_valid_mp4() {
+    let Some(paths) = tools() else { return };
+    let dir = workdir("quality");
+    let clip = test_clip(&paths, &dir);
+    for quality in EncodeQuality::ALL {
+        let out = dir.join(format!("{}.mp4", quality.name()));
+        export_with_quality(&paths, &clip, &out, VideoFormat::Mp4, small_settings(), quality).unwrap();
+        let info = probe(&paths, &out).unwrap();
+        assert_eq!(info.frames, Some(50), "{quality:?}");
+        assert!(info.has_audio, "{quality:?}");
+    }
+    cleanup(dir);
 }
 
 #[test]
@@ -236,6 +263,7 @@ fn cancel_removes_partial_output() {
             settings,
             range: TimeRange::default(),
             info,
+            quality: EncodeQuality::default(),
         },
     );
     // Wait for real progress so ffmpeg is mid-encode, then cancel.
@@ -276,6 +304,7 @@ fn trimmed_range_exports_only_that_section() {
             settings: small_settings(),
             range,
             info,
+            quality: EncodeQuality::default(),
         },
     );
     let result = loop {

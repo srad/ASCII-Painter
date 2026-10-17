@@ -149,6 +149,17 @@ impl Converter {
         raster::render(frame, &self.bitmaps, self.background())
     }
 
+    /// Pixels of `frame` for yuv420p video: opaque, with both sides padded to even using the
+    /// background colour. Same pixels as [`Converter::render`] flattened and padded, in one pass.
+    pub fn render_even(&self, frame: &AsciiFrame) -> RgbaImage {
+        let fill = self.settings.color.bg;
+        if self.settings.transparent() {
+            raster::pad_even(self.render(frame), fill)
+        } else {
+            raster::render_opaque_even(frame, &self.bitmaps, fill)
+        }
+    }
+
     pub fn to_text(&self, frame: &AsciiFrame) -> String {
         text::to_text(frame)
     }

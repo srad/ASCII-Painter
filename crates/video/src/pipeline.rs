@@ -10,13 +10,12 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use ascii_painter_core::render::ansi::{FRAME_PREFIX, VideoHeader};
-use ascii_painter_core::render::raster::pad_even;
 use ascii_painter_core::render::text::FRAME_SEPARATOR;
 use ascii_painter_core::{AsciiFrame, ConvertInput, Converter, GridSize, Settings, Size2};
 use image::RgbaImage;
 
 use crate::decode::{FrameReader, decode_size};
-use crate::encode::{AudioSource, EncodeRequest, Encoder};
+use crate::encode::{AudioSource, EncodeQuality, EncodeRequest, Encoder};
 use crate::ffmpeg::FfmpegPaths;
 use crate::probe::MediaInfo;
 use crate::{TimeRange, VideoError};
@@ -64,6 +63,8 @@ pub struct ExportRequest {
     pub settings: Settings,
     pub range: TimeRange,
     pub info: MediaInfo,
+    /// MP4 only.
+    pub quality: EncodeQuality,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -139,7 +140,7 @@ impl Drop for ExportJob {
 }
 
 enum Sink {
-    Mp4 { encoder: Encoder, fill: ascii_painter_core::Rgb },
+    Mp4 { encoder: Encoder },
     Text(BufWriter<File>),
 }
 
@@ -151,7 +152,7 @@ enum Rendered {
 impl Sink {
     fn write(&mut self, item: Rendered) -> Result<(), VideoError> {
         match (self, item) {
-            (Sink::Mp4 { encoder, fill }, Rendered::Pixels(image)) => encoder.write_frame(&pad_even(image, *fill)),
+            (Sink::Mp4 { encoder }, Rendered::Pixels(image)) => encoder.write_frame(&image),
             (Sink::Text(out), Rendered::Text(text)) => Ok(out.write_all(text.as_bytes())?),
             _ => unreachable!("sink and rendering are chosen from the same format"),
         }
@@ -185,8 +186,14 @@ fn run(
     let mut sink = match req.format {
         VideoFormat::Mp4 => {
             let audio = info.has_audio.then_some(AudioSource { input: &req.input, range: req.range });
-            let request = EncodeRequest { output: &req.output, size: mp4_size(&converter, grid), fps: info.fps, audio };
-            Sink::Mp4 { encoder: Encoder::spawn(paths, request)?, fill: converter.settings().color.bg }
+            let request = EncodeRequest {
+                output: &req.output,
+                size: mp4_size(&converter, grid),
+                fps: info.fps,
+                audio,
+                quality: req.quality,
+            };
+            Sink::Mp4 { encoder: Encoder::spawn(paths, request)? }
         }
         VideoFormat::Text | VideoFormat::Ansi => Sink::Text(BufWriter::new(File::create(&req.output)?)),
     };
@@ -244,7 +251,7 @@ fn run(
             let (ascii, rendered) = pool.install(|| {
                 let ascii = converter.convert(ConvertInput { image: &frame, grid, previous: previous.as_ref() });
                 let rendered = match req.format {
-                    VideoFormat::Mp4 => Rendered::Pixels(converter.render(&ascii)),
+                    VideoFormat::Mp4 => Rendered::Pixels(converter.render_even(&ascii)),
                     VideoFormat::Text => {
                         let sep = if done == 0 { String::new() } else { FRAME_SEPARATOR.to_string() };
                         Rendered::Text(sep + &converter.to_text(&ascii))

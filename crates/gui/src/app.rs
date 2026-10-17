@@ -11,7 +11,8 @@ use ascii_painter_core::{ConvertInput, Converter, GridSize, Settings, Size2};
 use ascii_painter_video::encode::MAX_SIDE;
 use ascii_painter_video::pipeline::mp4_size;
 use ascii_painter_video::{
-    ExportEvent, ExportJob, ExportRequest, FfmpegPaths, MediaInfo, Progress, TimeRange, VideoFormat, probe,
+    EncodeQuality, ExportEvent, ExportJob, ExportRequest, FfmpegPaths, MediaInfo, Progress, TimeRange, VideoFormat,
+    probe,
 };
 use eframe::egui::{
     self, ColorImage, ComboBox, FontData, FontDefinitions, FontFamily, ProgressBar, RichText, ScrollArea,
@@ -180,6 +181,7 @@ struct Persisted {
     preset_name: String,
     ffmpeg_dir: Option<PathBuf>,
     view_mode: ViewMode,
+    video_quality: EncodeQuality,
 }
 
 pub struct AsciiPainterApp {
@@ -201,6 +203,7 @@ pub struct AsciiPainterApp {
     viewer: ViewerState,
     output_path: String,
     output_format: OutputFormat,
+    video_quality: EncodeQuality,
     export: Option<Export>,
     status: Option<Status>,
     toast: Option<Toast>,
@@ -329,6 +332,7 @@ impl AsciiPainterApp {
             viewer: ViewerState::with_mode(persisted.view_mode),
             output_path: String::new(),
             output_format: OutputFormat::Png,
+            video_quality: persisted.video_quality,
             export: None,
             status: None,
             toast: None,
@@ -522,6 +526,7 @@ impl AsciiPainterApp {
                     settings,
                     range,
                     info: video.info.clone(),
+                    quality: self.video_quality,
                 };
                 let total = video.info.frames_in(range);
                 let job = ExportJob::start(paths.clone(), request);
@@ -855,7 +860,22 @@ impl AsciiPainterApp {
             if before != self.output_format && !self.output_path.trim().is_empty() {
                 self.output_path = self.output_file().display().to_string();
             }
-            ui.add(egui::TextEdit::singleline(&mut self.output_path).desired_width(ui.available_width() - 310.0));
+            let mut reserved = 310.0;
+            if self.output_format == OutputFormat::Mp4 {
+                reserved += 150.0;
+                ComboBox::from_id_salt("quality")
+                    .selected_text(format!("Quality: {}", self.video_quality.label()))
+                    .width(140.0)
+                    .show_ui(ui, |ui| {
+                        for quality in EncodeQuality::ALL {
+                            ui.selectable_value(&mut self.video_quality, quality, quality.label())
+                                .on_hover_text(quality.description());
+                        }
+                    })
+                    .response
+                    .on_hover_text("Draft exports fastest; High gives the highest fidelity but takes longest");
+            }
+            ui.add(egui::TextEdit::singleline(&mut self.output_path).desired_width(ui.available_width() - reserved));
             if ui.button("Browse…").clicked() {
                 let current = self.output_file();
                 let mut dialog =
@@ -1156,6 +1176,7 @@ impl eframe::App for AsciiPainterApp {
             preset_name: self.preset_name.clone(),
             ffmpeg_dir: self.ffmpeg_dir.clone(),
             view_mode: self.viewer.mode,
+            video_quality: self.video_quality,
         };
         eframe::set_value(storage, eframe::APP_KEY, &persisted);
     }

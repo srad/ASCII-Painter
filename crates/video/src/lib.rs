@@ -7,6 +7,7 @@ pub mod ffmpeg;
 pub mod pipeline;
 pub mod probe;
 
+pub use encode::EncodeQuality;
 pub use ffmpeg::FfmpegPaths;
 pub use pipeline::{ExportEvent, ExportJob, ExportRequest, Progress, VideoFormat};
 pub use probe::{Fps, MediaInfo, probe};

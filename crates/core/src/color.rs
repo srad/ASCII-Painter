@@ -33,7 +33,11 @@ pub fn srgb_u8_to_linear(v: u8) -> f32 {
 }
 
 pub fn linear_to_srgb_u8(v: f32) -> u8 {
-    encode_lut()[(v.clamp(0.0, 1.0) * ENCODE_STEPS as f32).round() as usize]
+    let x = v.clamp(0.0, 1.0) * ENCODE_STEPS as f32;
+    // Round half up by hand, exactly as `f32::round` does for non-negative values: without SSE4.1
+    // (the x86-64 baseline) `round` is a libm call per pixel channel, which dominated rendering.
+    let floor = x as usize;
+    encode_lut()[floor + usize::from(x - floor as f32 >= 0.5)]
 }
 
 /// Relative luminance (Rec. 709) of a linear colour.
@@ -143,6 +147,21 @@ impl Palette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn linear_to_srgb_u8_matches_the_rounding_formulation() {
+        let reference = |v: f32| encode_lut()[(v.clamp(0.0, 1.0) * ENCODE_STEPS as f32).round() as usize];
+        // Out-of-range, NaN, every LUT tie (k + 0.5 steps) and the floats either side of it.
+        let mut samples = vec![-1.0, 0.0, 1.0, 2.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY];
+        for k in 0..=ENCODE_STEPS {
+            let tie = (k as f32 + 0.5) / ENCODE_STEPS as f32;
+            samples.extend([tie, f32::from_bits(tie.to_bits() + 1), f32::from_bits(tie.to_bits() - 1)]);
+        }
+        samples.extend((0..200_000).map(|i| i as f32 / 199_999.0));
+        for v in samples {
+            assert_eq!(linear_to_srgb_u8(v), reference(v), "{v}");
+        }
+    }
 
     #[test]
     fn srgb_roundtrip_is_exact_for_every_byte() {

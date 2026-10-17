@@ -10,7 +10,9 @@ use ascii_painter_core::load::{InputKind, classify, load_still};
 use ascii_painter_core::presets::{self, Preset};
 use ascii_painter_core::render::raster;
 use ascii_painter_core::{ConvertInput, Converter, Settings, Size2};
-use ascii_painter_video::{ExportEvent, ExportJob, ExportRequest, FfmpegPaths, TimeRange, VideoFormat, probe};
+use ascii_painter_video::{
+    EncodeQuality, ExportEvent, ExportJob, ExportRequest, FfmpegPaths, TimeRange, VideoFormat, probe,
+};
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
@@ -39,6 +41,9 @@ enum Command {
         /// Overwrite an existing output file.
         #[arg(long)]
         force: bool,
+        /// MP4 encode quality: draft (fastest), standard or high (slowest).
+        #[arg(long, default_value = "standard")]
+        quality: EncodeQuality,
     },
     /// Play an .ans export, a video or an image in this terminal (q / Esc to stop).
     Play {
@@ -120,7 +125,7 @@ fn output_kind(path: &Path) -> Result<OutputKind> {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
-        Command::Convert { input, output, style, start, end, force } => {
+        Command::Convert { input, output, style, start, end, force, quality } => {
             if output.exists() && !force {
                 bail!("{} exists; pass --force to overwrite", output.display());
             }
@@ -134,7 +139,7 @@ fn main() -> Result<()> {
                     };
                     convert_video(
                         &style.ffmpeg()?,
-                        ExportPlan { input, output, format, settings, range: TimeRange { start, end } },
+                        ExportPlan { input, output, format, settings, range: TimeRange { start, end }, quality },
                     )
                 }
             }
@@ -185,6 +190,7 @@ struct ExportPlan {
     format: VideoFormat,
     settings: Settings,
     range: TimeRange,
+    quality: EncodeQuality,
 }
 
 fn convert_video(paths: &FfmpegPaths, plan: ExportPlan) -> Result<()> {
@@ -201,6 +207,7 @@ fn convert_video(paths: &FfmpegPaths, plan: ExportPlan) -> Result<()> {
             settings: plan.settings,
             range: plan.range,
             info,
+            quality: plan.quality,
         },
     );
     let mut stderr = std::io::stderr();
