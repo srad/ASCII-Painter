@@ -29,6 +29,8 @@ pub fn builtin() -> Vec<Preset> {
             s.grid.columns = 220;
             s.charset.preset = CharsetPreset::Detailed;
             s.tone.sharpen = 0.5;
+            // Sharpening amplifies grain too; smooth it first.
+            s.tone.denoise = 0.2;
         }),
         preset("Line Art", |s| {
             // Dark ink on paper: only contours become strokes.
@@ -38,6 +40,8 @@ pub fn builtin() -> Vec<Preset> {
             s.color.bg = Rgb::new(0xf5, 0xf5, 0xf0);
             s.tone.detail = Detail::EdgesOnly;
             s.tone.edge_boost = 0.5;
+            // Noise would otherwise become stray strokes.
+            s.tone.denoise = 0.4;
         }),
         preset("Colour Shapes", |s| {
             s.grid.columns = 200;
@@ -83,9 +87,19 @@ pub fn builtin() -> Vec<Preset> {
             s.charset.preset = CharsetPreset::Detailed;
             s.color.mode = ColorMode::Foreground;
             s.color.bg = Rgb::BLACK;
-            s.dither = Dither::Bayer8;
+            s.dither = Dither::BlueNoise;
+            s.tone.denoise = 0.3;
             s.temporal.hysteresis = 0.35;
             s.temporal.color_smoothing = 0.3;
+        }),
+        preset("Green Screen", |s| {
+            // Cut-out: the green backdrop becomes transparent in PNG / WebP.
+            s.grid.columns = 160;
+            s.charset.preset = CharsetPreset::Detailed;
+            s.color.mode = ColorMode::Foreground;
+            s.color.bg = Rgb::BLACK;
+            s.color.chroma_key = Some(Rgb::new(0x00, 0xff, 0x00));
+            s.render.transparent_background = true;
         }),
     ]
 }

@@ -23,13 +23,13 @@ Live preview, before/after and split view, presets, PNG / MP4 / TXT / ANSI expor
 | | |
 |---|---|
 | **Mapping modes** | Brightness ramp, **shape matching** (picks the glyph whose strokes match the image structure), half blocks `▀▄`, quadrant blocks `▚`, braille `⣿` |
-| **Tone** | Brightness, contrast, gamma, saturation, sharpen, edge boost, invert, edges-only line art |
-| **Dithering** | Floyd-Steinberg, Atkinson, Bayer 4x4 / 8x8 (Bayer is stable across video frames) |
-| **Colour** | Mono, colour text, colour text + background; true colour, ANSI 256 / 16 or a custom palette |
+| **Tone** | Brightness, contrast, gamma, saturation, levels (black / white point, shadows, highlights) or **auto levels**, edge-preserving denoise, sharpen, edge boost, invert, edges-only line art |
+| **Dithering** | Floyd-Steinberg, Atkinson, Bayer 4x4 / 8x8, blue noise (Bayer and blue noise are stable across video frames) |
+| **Colour** | Mono, colour text, colour text + background; true colour, ANSI 256 / 16 or a custom palette; **chroma key** (green screen) and transparent-background PNG / WebP |
 | **Video** | Temporal stability (glyph hysteresis, colour smoothing), trimming, audio kept in MP4, rotated / anamorphic sources handled |
 | **Compare** | Original, ASCII, side-by-side and a draggable **split view**, with shared zoom and pan |
 | **Export** | PNG, MP4 (H.264 / AAC), plain `.txt`, ANSI `.ans`, with progress, ETA and cancel |
-| **Presets** | 11 built-in (Classic, Detailed, Line Art, Colour Shapes, Braille HD, Retro Green Terminal, Newspaper, Video Stable, ...) plus your own, saved as TOML |
+| **Presets** | 12 built-in (Classic, Detailed, Line Art, Colour Shapes, Braille HD, Retro Green Terminal, Newspaper, Video Stable, Green Screen, ...) plus your own, saved as TOML |
 
 The preview uses the exact same renderer as the export, so what you see is what you get.
 
@@ -55,6 +55,7 @@ ascii-painter-cli presets
 
 The output format follows the extension: `.png/.jpg/.webp/.bmp`, `.mp4`, `.txt`, `.ans`.
 Video `.txt` frames are separated by form feeds; video `.ans` files play with `ascii-painter-cli play`.
+With *transparent background* on, `.png` and `.webp` keep alpha; `.jpg`, `.bmp` and `.mp4` are composited onto the background colour.
 `--settings file.toml` loads a settings file.
 
 User presets are TOML files in the platform config folder (`.../ASCII Painter/presets`).

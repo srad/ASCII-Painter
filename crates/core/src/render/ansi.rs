@@ -138,7 +138,7 @@ mod tests {
             Cell { ch: 'b', fg: white, bg: black },
             Cell { ch: 'c', fg: red, bg: black },
         ];
-        let frame = AsciiFrame { grid: GridSize { cols: 3, rows: 1 }, cells };
+        let frame = AsciiFrame { grid: GridSize { cols: 3, rows: 1 }, cells, auto_levels: None };
         assert_eq!(
             to_ansi(&frame, AnsiDepth::TrueColor),
             "\x1b[38;2;255;255;255;48;2;0;0;0mab\x1b[38;2;255;0;0mc\x1b[0m\n"

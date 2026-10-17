@@ -90,6 +90,8 @@ pub struct Cell {
 pub struct AsciiFrame {
     pub grid: GridSize,
     pub cells: Vec<Cell>,
+    /// Black and white levels chosen by auto levels, carried to the next video frame.
+    pub auto_levels: Option<[f32; 2]>,
 }
 
 impl AsciiFrame {

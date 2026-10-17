@@ -56,7 +56,7 @@ pub fn map(samples: &Samples, grid: GridSize, ctx: &MapContext, previous: Option
         .enumerate()
         .map(|(i, (t, k))| ctx.finish((glyphs.glyphs[k].ch, t.fg, t.bg), prev.map(|p| &p[i])))
         .collect();
-    AsciiFrame { grid, cells }
+    AsciiFrame { grid, cells, auto_levels: None }
 }
 
 /// Split a cell's samples into lighter and darker halves: their means become fg and bg, and the

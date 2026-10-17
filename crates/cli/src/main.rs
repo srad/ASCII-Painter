@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use ascii_painter_core::load::{InputKind, classify, load_still};
 use ascii_painter_core::presets::{self, Preset};
+use ascii_painter_core::render::raster;
 use ascii_painter_core::{ConvertInput, Converter, Settings, Size2};
 use ascii_painter_video::{ExportEvent, ExportJob, ExportRequest, FfmpegPaths, TimeRange, VideoFormat, probe};
 use clap::{Args, Parser, Subcommand};
@@ -160,8 +161,15 @@ fn convert_still(input: &Path, output: &Path, kind: OutputKind, settings: Settin
     match kind {
         OutputKind::Image => {
             let rendered = converter.render(&frame);
-            // JPEG has no alpha channel; the render is opaque anyway.
-            image::DynamicImage::ImageRgba8(rendered).into_rgb8().save(output)?;
+            let keeps_alpha =
+                matches!(image::ImageFormat::from_path(output), Ok(image::ImageFormat::Png | image::ImageFormat::WebP));
+            if keeps_alpha {
+                rendered.save(output)?;
+            } else {
+                // JPEG has no alpha channel and BMP viewers ignore it: composite onto the background.
+                let flat = raster::flatten(rendered, background);
+                image::DynamicImage::ImageRgba8(flat).into_rgb8().save(output)?;
+            }
         }
         OutputKind::Video(VideoFormat::Text) => std::fs::write(output, converter.to_text(&frame))?,
         OutputKind::Video(VideoFormat::Ansi) => std::fs::write(output, converter.to_ansi(&frame))?,

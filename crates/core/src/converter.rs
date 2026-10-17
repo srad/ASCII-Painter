@@ -8,7 +8,8 @@ use crate::glyphs::{
     Bitmaps, BlockKind, GlyphSet, block_glyphs, braille_bitmaps, font_cell, font_glyphs, validate_charset,
 };
 use crate::mapping::{self, MapContext};
-use crate::preprocess::prepare;
+use crate::preprocess::{Key, prepare};
+use crate::render::raster::Background;
 use crate::render::{ansi, raster, text};
 use crate::settings::{MappingMode, PaletteKind, RampOrder, Settings};
 use crate::types::{AsciiFrame, CellSize, GridSize, Size2};
@@ -87,7 +88,11 @@ impl Converter {
             return self.render(frame);
         }
         let (_, bitmaps) = glyph_data(&self.settings, &self.chars, font_px);
-        raster::render(frame, &bitmaps)
+        raster::render(frame, &bitmaps, self.background())
+    }
+
+    fn background(&self) -> Background {
+        if self.settings.transparent() { Background::Transparent } else { Background::Opaque }
     }
 
     pub fn settings(&self) -> &Settings {
@@ -123,17 +128,25 @@ impl Converter {
 
     pub fn convert(&self, input: ConvertInput) -> AsciiFrame {
         let ctx = MapContext { settings: &self.settings, glyphs: &self.glyphs, palette: self.palette.as_ref() };
-        let samples = prepare(input.image, self.sample_size(input.grid), &self.settings.tone, ctx.ink().direction);
+        let prepared = prepare(
+            input.image,
+            self.sample_size(input.grid),
+            &self.settings.tone,
+            ctx.ink().direction,
+            Key::from_settings(&self.settings.color),
+            input.previous.and_then(|p| p.auto_levels),
+        );
         let map = match self.settings.mapping {
             MappingMode::Ramp => mapping::ramp::map,
             MappingMode::Shape | MappingMode::HalfBlock | MappingMode::Quadrant => mapping::shape::map,
             MappingMode::Braille => mapping::braille::map,
         };
-        map(&samples, input.grid, &ctx, input.previous)
+        AsciiFrame { auto_levels: prepared.levels, ..map(&prepared.samples, input.grid, &ctx, input.previous) }
     }
 
+    /// Pixels of `frame`; transparent where the settings ask for a transparent background.
     pub fn render(&self, frame: &AsciiFrame) -> RgbaImage {
-        raster::render(frame, &self.bitmaps)
+        raster::render(frame, &self.bitmaps, self.background())
     }
 
     pub fn to_text(&self, frame: &AsciiFrame) -> String {
@@ -177,6 +190,42 @@ mod tests {
         let converter = Converter::new(settings).unwrap();
         assert_eq!(converter.grid_for(Size2 { w: 200, h: 100 }), GridSize { cols: 100, rows: 25 });
         assert_eq!(converter.grid_for(Size2 { w: 1000, h: 1 }).rows, 1);
+    }
+
+    #[test]
+    fn chroma_key_blanks_the_keyed_area_whatever_the_tone() {
+        // Left half: a dim grey ramp (the subject); right half: green screen.
+        let pixel = |x: u32| if x < 64 { image::Rgb([(100 + x) as u8; 3]) } else { image::Rgb([0, 255, 0]) };
+        let image = RgbImage::from_fn(128, 64, |x, _| pixel(x));
+        for mode in [crate::settings::ColorMode::Mono, crate::settings::ColorMode::Foreground] {
+            let mut settings = Settings::default();
+            settings.grid.columns = 32;
+            settings.color.mode = mode;
+            settings.color.chroma_key = Some(crate::Rgb::new(0, 255, 0));
+            settings.tone.contrast = 2.0;
+            settings.tone.brightness = 0.3;
+            settings.tone.auto_levels = true;
+            let converter = Converter::new(settings).unwrap();
+            let grid = converter.grid_for(Size2 { w: 128, h: 64 });
+            let frame = converter.convert(ConvertInput { image: &image, grid, previous: None });
+            for row in 0..grid.rows {
+                let cells = frame.row(row);
+                assert!(cells[17..].iter().all(|c| c.ch == ' '), "{mode:?} row {row}: keyed area not blank");
+            }
+            // Auto levels measured the subject alone, so its brightest end reaches the densest glyph.
+            assert!(frame.cells.iter().any(|c| c.ch == '@'), "{mode:?}: subject not stretched");
+            let levels = frame.auto_levels.unwrap();
+            assert!(levels[1] < 0.7, "{mode:?}: green counted in levels {levels:?}");
+        }
+    }
+
+    #[test]
+    fn transparent_background_only_for_fixed_background_modes() {
+        let mut settings = Settings::default();
+        settings.render.transparent_background = true;
+        assert!(settings.transparent());
+        settings.color.mode = crate::settings::ColorMode::ForegroundBackground;
+        assert!(!settings.transparent());
     }
 
     #[test]

@@ -69,6 +69,18 @@ pub struct ToneSettings {
     /// Sobel edge emphasis, `0..=2`.
     pub edge_boost: f32,
     pub polarity: Polarity,
+    /// Input level mapped to black, `0..=1`.
+    pub black_point: f32,
+    /// Input level mapped to white, `0..=1`, above `black_point`.
+    pub white_point: f32,
+    /// Lifts (positive) or deepens (negative) the shadows, `-1..=1`.
+    pub shadows: f32,
+    /// Lifts (positive) or deepens (negative) the highlights, `-1..=1`.
+    pub highlights: f32,
+    /// Derive black and white points from the image itself, overriding the manual ones.
+    pub auto_levels: bool,
+    /// Edge-preserving noise reduction, `0..=1`.
+    pub denoise: f32,
 }
 
 impl Default for ToneSettings {
@@ -82,6 +94,12 @@ impl Default for ToneSettings {
             sharpen: 0.0,
             edge_boost: 0.0,
             polarity: Polarity::Normal,
+            black_point: 0.0,
+            white_point: 1.0,
+            shadows: 0.0,
+            highlights: 0.0,
+            auto_levels: false,
+            denoise: 0.0,
         }
     }
 }
@@ -191,10 +209,12 @@ pub enum Dither {
     Atkinson,
     Bayer4,
     Bayer8,
+    BlueNoise,
 }
 
 impl Dither {
-    pub const ALL: [Dither; 5] = [Self::None, Self::FloydSteinberg, Self::Atkinson, Self::Bayer4, Self::Bayer8];
+    pub const ALL: [Dither; 6] =
+        [Self::None, Self::FloydSteinberg, Self::Atkinson, Self::Bayer4, Self::Bayer8, Self::BlueNoise];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -203,6 +223,7 @@ impl Dither {
             Self::Atkinson => "Atkinson",
             Self::Bayer4 => "Bayer 4×4 (video-stable)",
             Self::Bayer8 => "Bayer 8×8 (video-stable)",
+            Self::BlueNoise => "Blue noise (video-stable)",
         }
     }
 }
@@ -260,6 +281,10 @@ pub struct ColorSettings {
     pub bg: Rgb,
     pub palette: PaletteKind,
     pub custom_palette: Vec<Rgb>,
+    /// Source colour replaced by the background (green screen); `None` = off.
+    pub chroma_key: Option<Rgb>,
+    /// How far from `chroma_key` a colour may be and still be keyed, `0..=1`.
+    pub key_tolerance: f32,
 }
 
 impl Default for ColorSettings {
@@ -270,6 +295,8 @@ impl Default for ColorSettings {
             bg: Rgb::new(12, 12, 12),
             palette: PaletteKind::TrueColor,
             custom_palette: vec![Rgb::BLACK, Rgb::WHITE],
+            chroma_key: None,
+            key_tolerance: 0.25,
         }
     }
 }
@@ -294,11 +321,13 @@ impl Default for TemporalSettings {
 pub struct RenderSettings {
     /// Font size of PNG/MP4 output, in pixels.
     pub font_px: f32,
+    /// Leave the background transparent in PNG/WebP output (fixed-background colour modes only).
+    pub transparent_background: bool,
 }
 
 impl Default for RenderSettings {
     fn default() -> Self {
-        Self { font_px: 14.0 }
+        Self { font_px: 14.0, transparent_background: false }
     }
 }
 
@@ -312,6 +341,7 @@ pub enum Control {
     Palette,
     Hysteresis,
     ColorSmoothing,
+    TransparentBackground,
 }
 
 impl Settings {
@@ -331,7 +361,13 @@ impl Settings {
             Control::Palette => color != ColorMode::Mono,
             Control::Hysteresis => mode != MappingMode::Braille,
             Control::ColorSmoothing => color != ColorMode::Mono,
+            Control::TransparentBackground => color != ColorMode::ForegroundBackground,
         }
+    }
+
+    /// Whether rendered pixels leave the background transparent.
+    pub fn transparent(&self) -> bool {
+        self.render.transparent_background && self.relevant(Control::TransparentBackground)
     }
 
     /// Clamp every numeric field into its documented range.
@@ -345,6 +381,12 @@ impl Settings {
         t.saturation = t.saturation.clamp(0.0, 3.0);
         t.sharpen = t.sharpen.clamp(0.0, 3.0);
         t.edge_boost = t.edge_boost.clamp(0.0, 2.0);
+        t.black_point = t.black_point.clamp(0.0, 0.99);
+        t.white_point = t.white_point.clamp(t.black_point + 0.01, 1.0);
+        t.shadows = t.shadows.clamp(-1.0, 1.0);
+        t.highlights = t.highlights.clamp(-1.0, 1.0);
+        t.denoise = t.denoise.clamp(0.0, 1.0);
+        self.color.key_tolerance = self.color.key_tolerance.clamp(0.0, 1.0);
         self.temporal.hysteresis = self.temporal.hysteresis.clamp(0.0, 1.0);
         self.temporal.color_smoothing = self.temporal.color_smoothing.clamp(0.0, 0.95);
         self.render.font_px = self.render.font_px.clamp(4.0, 64.0);
@@ -370,7 +412,21 @@ mod tests {
         let mut settings = Settings::default();
         settings.color.fg = Rgb::new(1, 2, 3);
         settings.grid.cell_aspect_override = Some(0.5);
+        settings.color.chroma_key = Some(Rgb::new(0, 255, 0));
+        settings.tone.auto_levels = true;
         let text = toml::to_string(&settings).unwrap();
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), settings);
+        settings.color.chroma_key = None;
+        let text = toml::to_string(&settings).unwrap();
+        assert_eq!(toml::from_str::<Settings>(&text).unwrap(), settings);
+    }
+
+    #[test]
+    fn sanitized_keeps_white_point_above_black_point() {
+        let mut settings = Settings::default();
+        settings.tone.black_point = 0.6;
+        settings.tone.white_point = 0.4;
+        let t = settings.sanitized().tone;
+        assert!(t.white_point >= t.black_point + 0.01 - 1e-6, "{t:?}");
     }
 }

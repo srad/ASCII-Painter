@@ -86,6 +86,16 @@ pub fn settings_panel(ui: &mut Ui, s: &mut Settings, facts: &PanelFacts) {
         ui.add(Slider::new(&mut s.tone.saturation, 0.0..=3.0).text("saturation"));
         ui.add(Slider::new(&mut s.tone.sharpen, 0.0..=3.0).text("sharpen"));
         ui.add(Slider::new(&mut s.tone.edge_boost, 0.0..=2.0).text("edge boost"));
+        ui.add(Slider::new(&mut s.tone.denoise, 0.0..=1.0).text("denoise"))
+            .on_hover_text("Edge-preserving noise reduction; calms grain and video flicker.");
+        ui.checkbox(&mut s.tone.auto_levels, "auto levels")
+            .on_hover_text("Stretch the image's own darkest and brightest tones to the full range.");
+        ui.add_enabled_ui(!s.tone.auto_levels, |ui| {
+            ui.add(Slider::new(&mut s.tone.black_point, 0.0..=0.99).text("black point"));
+            ui.add(Slider::new(&mut s.tone.white_point, 0.01..=1.0).text("white point"));
+        });
+        ui.add(Slider::new(&mut s.tone.shadows, -1.0..=1.0).text("shadows"));
+        ui.add(Slider::new(&mut s.tone.highlights, -1.0..=1.0).text("highlights"));
         let mut inverted = s.tone.polarity == Polarity::Inverted;
         if ui.checkbox(&mut inverted, "invert").changed() {
             s.tone.polarity = if inverted { Polarity::Inverted } else { Polarity::Normal };
@@ -131,6 +141,17 @@ pub fn settings_panel(ui: &mut Ui, s: &mut Settings, facts: &PanelFacts) {
                 ui.weak("right-click a colour to remove it");
             }
         });
+        let mut keyed = s.color.chroma_key.is_some();
+        ui.checkbox(&mut keyed, "chroma key")
+            .on_hover_text("Replace a backdrop colour (green screen) with the background.");
+        match (keyed, &mut s.color.chroma_key) {
+            (true, Some(key)) => {
+                color_button(ui, "key colour", key);
+                ui.add(Slider::new(&mut s.color.key_tolerance, 0.0..=1.0).text("key tolerance"));
+            }
+            (true, slot @ None) => *slot = Some(Rgb::new(0, 255, 0)),
+            (false, slot) => *slot = None,
+        }
     });
 
     if facts.is_video {
@@ -149,5 +170,9 @@ pub fn settings_panel(ui: &mut Ui, s: &mut Settings, facts: &PanelFacts) {
 
     section(ui, "Render", |ui| {
         ui.add(Slider::new(&mut s.render.font_px, 4.0..=64.0).text("font px (PNG / MP4)"));
+        ui.add_enabled_ui(s.relevant(Control::TransparentBackground), |ui| {
+            ui.checkbox(&mut s.render.transparent_background, "transparent background")
+                .on_hover_text("PNG / WebP keep alpha; MP4, JPEG and BMP are composited onto the background.");
+        });
     });
 }

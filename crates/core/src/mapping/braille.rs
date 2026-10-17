@@ -65,5 +65,5 @@ pub fn map(samples: &Samples, grid: GridSize, ctx: &MapContext, previous: Option
             ctx.finish((braille_char(bits), fg, bg), prev.map(|p| &p[i]))
         })
         .collect();
-    AsciiFrame { grid, cells }
+    AsciiFrame { grid, cells, auto_levels: None }
 }
