@@ -1,0 +1,20 @@
+[package]
+name = "ascii-painter-cli"
+description = "Command-line ASCII Painter: convert files and play ASCII video in the terminal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ascii-painter-cli"
+path = "src/main.rs"
+
+[dependencies]
+ascii-painter-core.workspace = true
+ascii-painter-video.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+crossterm.workspace = true
+image.workspace = true
+toml.workspace = true

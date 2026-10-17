@@ -1,0 +1,15 @@
+ASCII Painter ships unmodified static builds of FFmpeg 9.0.2 (ffmpeg and ffprobe) as separate
+programs. ASCII Painter runs them as child processes and does not link to them.
+
+These builds include GPL components (libx264) and are therefore distributed under the
+GNU General Public License, version 3 or later:
+https://www.gnu.org/licenses/gpl-3.0.html
+
+FFmpeg source code for the shipped version:
+https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+
+Build sources and their build scripts:
+- Windows: https://github.com/GyanD/codexffmpeg/releases/tag/9.0.2 (https://www.gyan.dev/ffmpeg/builds/)
+- Linux: https://ffmpeg.martin-riedl.de/ (build scripts are linked from that page)
+
+Exact archives and checksums: build.ps1 and build.sh in the ASCII Painter source.

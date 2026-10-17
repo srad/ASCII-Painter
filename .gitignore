@@ -1,0 +1,7 @@
+# Build output
+/target/
+/dist/
+
+# Tool state
+/.codegraph/
+/.serena/

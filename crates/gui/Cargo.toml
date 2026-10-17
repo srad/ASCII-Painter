@@ -1,0 +1,19 @@
+[package]
+name = "ascii-painter-gui"
+description = "ASCII Painter — convert images and videos to ASCII art"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ascii-painter"
+path = "src/main.rs"
+[dependencies]
+ascii-painter-core.workspace = true
+ascii-painter-video.workspace = true
+anyhow.workspace = true
+eframe.workspace = true
+image.workspace = true
+rfd.workspace = true
+serde.workspace = true
