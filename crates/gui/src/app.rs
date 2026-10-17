@@ -14,7 +14,7 @@ use ascii_painter_video::{
     ExportEvent, ExportJob, ExportRequest, FfmpegPaths, MediaInfo, Progress, TimeRange, VideoFormat, probe,
 };
 use eframe::egui::{
-    self, Color32, ColorImage, ComboBox, FontData, FontDefinitions, FontFamily, ProgressBar, RichText, ScrollArea,
+    self, ColorImage, ComboBox, FontData, FontDefinitions, FontFamily, ProgressBar, RichText, ScrollArea,
     TextureFilter, TextureHandle, TextureOptions, Ui,
 };
 use image::{DynamicImage, RgbaImage};
@@ -557,14 +557,11 @@ impl AsciiPainterApp {
             self.preset_name.clone()
         };
         let mut chosen = None;
-        ComboBox::from_label(format!("preset ({preset_count})"))
-            .selected_text(label)
-            .width(200.0)
-            .height(480.0)
-            .show_ui(ui, |ui| {
-                for preset in builtin_presets {
+        ui.horizontal(|ui| {
+            ComboBox::from_id_salt("preset").selected_text(label).width(200.0).height(480.0).show_ui(ui, |ui| {
+                for preset in &builtin_presets {
                     if ui.selectable_label(preset.name == self.preset_name, &preset.name).clicked() {
-                        chosen = Some(preset);
+                        chosen = Some(preset.clone());
                     }
                 }
                 if !self.user_presets.is_empty() {
@@ -576,6 +573,22 @@ impl AsciiPainterApp {
                     }
                 }
             });
+            // Step through the list in the combo's order; wraps around, and from a custom
+            // (unlisted) state "next" starts at the first preset and "previous" at the last.
+            let current = builtin_presets.iter().chain(&self.user_presets).position(|p| p.name == self.preset_name);
+            let previous = theme::arrow_button(ui, theme::Arrow::Left, 34.0).on_hover_text("Previous preset");
+            let next = theme::arrow_button(ui, theme::Arrow::Right, 34.0).on_hover_text("Next preset");
+            let target = if next.clicked() {
+                Some(current.map_or(0, |i| (i + 1) % preset_count))
+            } else if previous.clicked() {
+                Some(current.map_or(preset_count - 1, |i| (i + preset_count - 1) % preset_count))
+            } else {
+                None
+            };
+            if let Some(index) = target {
+                chosen = builtin_presets.iter().chain(&self.user_presets).nth(index).cloned();
+            }
+        });
         if let Some(preset) = chosen {
             self.apply_preset(preset);
         }
@@ -635,7 +648,7 @@ impl AsciiPainterApp {
 
     fn toolbar(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            if ui.button("📂 Open…").clicked() {
+            if theme::primary_button(ui, "📂 Open…", egui::vec2(124.0, 40.0)).clicked() {
                 let picked = rfd::FileDialog::new()
                     .add_filter(
                         "Images and videos",
@@ -714,7 +727,7 @@ impl AsciiPainterApp {
                 })
                 .step_by(0.1);
             ui.spacing_mut().slider_width = (ui.available_width() * 0.4).max(150.0);
-            changed |= ui.add(slider).changed();
+            changed |= theme::slider(ui, slider).changed();
             ui.separator();
             ui.label("Export from");
             ui.add(egui::DragValue::new(&mut video.start).range(0.0..=video.end).speed(0.1).suffix(" s"));
@@ -756,7 +769,7 @@ impl AsciiPainterApp {
             if before != self.output_format && !self.output_path.trim().is_empty() {
                 self.output_path = self.output_file().display().to_string();
             }
-            ui.add(egui::TextEdit::singleline(&mut self.output_path).desired_width(ui.available_width() - 260.0));
+            ui.add(egui::TextEdit::singleline(&mut self.output_path).desired_width(ui.available_width() - 310.0));
             if ui.button("Browse…").clicked() {
                 let current = self.output_file();
                 let mut dialog =
@@ -777,10 +790,11 @@ impl AsciiPainterApp {
                     job.cancel();
                 }
             } else {
-                let export = egui::Button::new(RichText::new("Export").strong().color(Color32::WHITE))
-                    .fill(theme::ACCENT)
-                    .min_size(egui::vec2(88.0, 0.0));
-                let button = ui.add_enabled(blocker.is_none(), export);
+                let button = ui
+                    .add_enabled_ui(blocker.is_none(), |ui| {
+                        theme::primary_button(ui, "Export", egui::vec2(136.0, 42.0))
+                    })
+                    .inner;
                 let button = match &blocker {
                     Some(reason) => button.on_disabled_hover_text(reason),
                     None => button,
@@ -890,7 +904,7 @@ impl AsciiPainterApp {
             .show(ctx, |ui| {
                 ui.label(format!("{} already exists.", path.display()));
                 ui.horizontal(|ui| {
-                    if ui.button("Replace").clicked() {
+                    if theme::primary_button(ui, "Replace", egui::vec2(110.0, 38.0)).clicked() {
                         decision = Some(true);
                     }
                     if ui.button("Cancel").clicked() {

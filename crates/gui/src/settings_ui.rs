@@ -7,6 +7,8 @@ use ascii_painter_core::settings::{
 };
 use eframe::egui::{self, CollapsingHeader, ComboBox, Slider, Ui};
 
+use crate::theme;
+
 /// Facts about the loaded input that change which controls are shown.
 pub struct PanelFacts<'a> {
     pub is_video: bool,
@@ -32,18 +34,24 @@ fn color_button(ui: &mut Ui, label: &str, color: &mut Rgb) {
 }
 
 fn section(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
-    CollapsingHeader::new(title).default_open(true).show(ui, add);
+    theme::card_frame().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        CollapsingHeader::new(theme::card_title(title)).id_salt(title).default_open(true).show(ui, add);
+    });
 }
 
 pub fn settings_panel(ui: &mut Ui, s: &mut Settings, facts: &PanelFacts) {
     section(ui, "Grid", |ui| {
-        ui.add(Slider::new(&mut s.grid.columns, MIN_COLUMNS..=MAX_COLUMNS).logarithmic(true).text("columns"));
+        theme::slider(
+            ui,
+            Slider::new(&mut s.grid.columns, MIN_COLUMNS..=MAX_COLUMNS).logarithmic(true).text("columns"),
+        );
         let mut custom = s.grid.cell_aspect_override.is_some();
         ui.checkbox(&mut custom, "Terminal cell aspect")
             .on_hover_text("Shape the grid for display in a terminal instead of the PNG/MP4 font.");
         match (custom, &mut s.grid.cell_aspect_override) {
             (true, Some(aspect)) => {
-                ui.add(Slider::new(aspect, 0.3..=1.0).text("cell width ÷ height"));
+                theme::slider(ui, Slider::new(aspect, 0.3..=1.0).text("cell width ÷ height"));
             }
             (true, slot @ None) => *slot = Some(0.5),
             (false, slot) => *slot = None,
@@ -80,22 +88,22 @@ pub fn settings_panel(ui: &mut Ui, s: &mut Settings, facts: &PanelFacts) {
             ui.radio_value(&mut s.tone.detail, Detail::Full, "full image");
             ui.radio_value(&mut s.tone.detail, Detail::EdgesOnly, "edges only");
         });
-        ui.add(Slider::new(&mut s.tone.brightness, -1.0..=1.0).text("brightness"));
-        ui.add(Slider::new(&mut s.tone.contrast, 0.0..=3.0).text("contrast"));
-        ui.add(Slider::new(&mut s.tone.gamma, 0.2..=5.0).logarithmic(true).text("gamma"));
-        ui.add(Slider::new(&mut s.tone.saturation, 0.0..=3.0).text("saturation"));
-        ui.add(Slider::new(&mut s.tone.sharpen, 0.0..=3.0).text("sharpen"));
-        ui.add(Slider::new(&mut s.tone.edge_boost, 0.0..=2.0).text("edge boost"));
-        ui.add(Slider::new(&mut s.tone.denoise, 0.0..=1.0).text("denoise"))
+        theme::slider(ui, Slider::new(&mut s.tone.brightness, -1.0..=1.0).text("brightness"));
+        theme::slider(ui, Slider::new(&mut s.tone.contrast, 0.0..=3.0).text("contrast"));
+        theme::slider(ui, Slider::new(&mut s.tone.gamma, 0.2..=5.0).logarithmic(true).text("gamma"));
+        theme::slider(ui, Slider::new(&mut s.tone.saturation, 0.0..=3.0).text("saturation"));
+        theme::slider(ui, Slider::new(&mut s.tone.sharpen, 0.0..=3.0).text("sharpen"));
+        theme::slider(ui, Slider::new(&mut s.tone.edge_boost, 0.0..=2.0).text("edge boost"));
+        theme::slider(ui, Slider::new(&mut s.tone.denoise, 0.0..=1.0).text("denoise"))
             .on_hover_text("Edge-preserving noise reduction; calms grain and video flicker.");
         ui.checkbox(&mut s.tone.auto_levels, "auto levels")
             .on_hover_text("Stretch the image's own darkest and brightest tones to the full range.");
         ui.add_enabled_ui(!s.tone.auto_levels, |ui| {
-            ui.add(Slider::new(&mut s.tone.black_point, 0.0..=0.99).text("black point"));
-            ui.add(Slider::new(&mut s.tone.white_point, 0.01..=1.0).text("white point"));
+            theme::slider(ui, Slider::new(&mut s.tone.black_point, 0.0..=0.99).text("black point"));
+            theme::slider(ui, Slider::new(&mut s.tone.white_point, 0.01..=1.0).text("white point"));
         });
-        ui.add(Slider::new(&mut s.tone.shadows, -1.0..=1.0).text("shadows"));
-        ui.add(Slider::new(&mut s.tone.highlights, -1.0..=1.0).text("highlights"));
+        theme::slider(ui, Slider::new(&mut s.tone.shadows, -1.0..=1.0).text("shadows"));
+        theme::slider(ui, Slider::new(&mut s.tone.highlights, -1.0..=1.0).text("highlights"));
         let mut inverted = s.tone.polarity == Polarity::Inverted;
         if ui.checkbox(&mut inverted, "invert").changed() {
             s.tone.polarity = if inverted { Polarity::Inverted } else { Polarity::Normal };
@@ -147,7 +155,7 @@ pub fn settings_panel(ui: &mut Ui, s: &mut Settings, facts: &PanelFacts) {
         match (keyed, &mut s.color.chroma_key) {
             (true, Some(key)) => {
                 color_button(ui, "key colour", key);
-                ui.add(Slider::new(&mut s.color.key_tolerance, 0.0..=1.0).text("key tolerance"));
+                theme::slider(ui, Slider::new(&mut s.color.key_tolerance, 0.0..=1.0).text("key tolerance"));
             }
             (true, slot @ None) => *slot = Some(Rgb::new(0, 255, 0)),
             (false, slot) => *slot = None,
@@ -157,19 +165,20 @@ pub fn settings_panel(ui: &mut Ui, s: &mut Settings, facts: &PanelFacts) {
     if facts.is_video {
         section(ui, "Video stability", |ui| {
             ui.add_enabled_ui(s.relevant(Control::Hysteresis), |ui| {
-                ui.add(Slider::new(&mut s.temporal.hysteresis, 0.0..=1.0).text("glyph hysteresis")).on_hover_text(
-                    "Keep the previous frame's character unless the new one fits clearly better. Reduces flicker.",
-                );
+                theme::slider(ui, Slider::new(&mut s.temporal.hysteresis, 0.0..=1.0).text("glyph hysteresis"))
+                    .on_hover_text(
+                        "Keep the previous frame's character unless the new one fits clearly better. Reduces flicker.",
+                    );
             });
             ui.add_enabled_ui(s.relevant(Control::ColorSmoothing), |ui| {
-                ui.add(Slider::new(&mut s.temporal.color_smoothing, 0.0..=0.95).text("colour smoothing"));
+                theme::slider(ui, Slider::new(&mut s.temporal.color_smoothing, 0.0..=0.95).text("colour smoothing"));
             });
             ui.weak("Temporal settings apply to exports; the preview shows a single frame.");
         });
     }
 
     section(ui, "Render", |ui| {
-        ui.add(Slider::new(&mut s.render.font_px, 4.0..=64.0).text("font px (PNG / MP4)"));
+        theme::slider(ui, Slider::new(&mut s.render.font_px, 4.0..=64.0).text("font px (PNG / MP4)"));
         ui.add_enabled_ui(s.relevant(Control::TransparentBackground), |ui| {
             ui.checkbox(&mut s.render.transparent_background, "transparent background")
                 .on_hover_text("PNG / WebP keep alpha; MP4, JPEG and BMP are composited onto the background.");
