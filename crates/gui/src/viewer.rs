@@ -5,6 +5,8 @@ use eframe::egui::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::theme;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ViewMode {
     Original,
@@ -82,14 +84,14 @@ fn draw(painter: &egui::Painter, texture: Option<&TextureHandle>, rect: Rect) {
 
 fn caption(painter: &egui::Painter, pos: Pos2, anchor: Align2, text: &str) {
     let galley_rect = painter.text(pos, anchor, text, FontId::proportional(13.0), Color32::WHITE);
-    painter.rect_filled(galley_rect.expand(4.0), 4.0, Color32::from_black_alpha(150));
+    painter.rect_filled(galley_rect.expand(5.0), 6.0, Color32::from_black_alpha(170));
     painter.text(pos, anchor, text, FontId::proportional(13.0), Color32::WHITE);
 }
 
 pub fn show(ui: &mut Ui, state: &mut ViewerState, images: ViewerImages) {
     let (area, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
     let painter = ui.painter_at(area);
-    painter.rect_filled(area, 0.0, Color32::from_gray(24));
+    painter.rect_filled(area, 0.0, theme::CANVAS);
     let aspect = images.aspect.max(0.01);
     let pointer = response.hover_pos();
 
@@ -148,12 +150,12 @@ pub fn show(ui: &mut Ui, state: &mut ViewerState, images: ViewerImages) {
             draw(&painter, images.ascii, rect);
             let left = Rect::from_min_max(area.min, pos2(divider_x, area.max.y));
             draw(&painter.with_clip_rect(left), images.original, rect);
-            painter.vline(divider_x, area.y_range(), Stroke::new(2.0, Color32::WHITE));
+            painter.vline(divider_x, area.y_range(), Stroke::new(2.0, theme::ACCENT));
             painter.circle(
                 pos2(divider_x, area.center().y),
-                9.0,
-                Color32::from_gray(40),
-                Stroke::new(2.0, Color32::WHITE),
+                10.0,
+                Color32::from_gray(20),
+                Stroke::new(2.0, theme::ACCENT),
             );
             caption(&painter, area.left_top() + Vec2::splat(10.0), Align2::LEFT_TOP, "Original");
             caption(&painter, area.right_top() + Vec2::new(-10.0, 10.0), Align2::RIGHT_TOP, "ASCII");

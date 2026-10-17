@@ -21,6 +21,7 @@ use image::{DynamicImage, RgbaImage};
 use serde::{Deserialize, Serialize};
 
 use crate::settings_ui::{PanelFacts, settings_panel};
+use crate::theme;
 use crate::viewer::{self, ViewMode, ViewerImages, ViewerState};
 use crate::worker::{PreviewRequest, PreviewSource, PreviewWorker, fit_within};
 
@@ -279,6 +280,7 @@ impl AsciiPainterApp {
 
     fn restore(cc: &eframe::CreationContext<'_>) -> Self {
         install_fonts(&cc.egui_ctx);
+        theme::apply(&cc.egui_ctx);
         let persisted: Persisted = cc.storage.and_then(|s| eframe::get_value(s, eframe::APP_KEY)).unwrap_or_default();
         let (user_presets, preset_errors) = presets::user_dir().map(|d| presets::load_user(&d)).unwrap_or_default();
         let settings = persisted.settings.sanitized();
@@ -665,7 +667,7 @@ impl AsciiPainterApp {
     }
 
     fn side_panel(&mut self, ui: &mut Ui) {
-        ui.heading("Preset");
+        ui.label(RichText::new("Preset").strong());
         self.presets_ui(ui);
         ui.separator();
         let facts = PanelFacts {
@@ -769,7 +771,10 @@ impl AsciiPainterApp {
                     job.cancel();
                 }
             } else {
-                let button = ui.add_enabled(blocker.is_none(), egui::Button::new(RichText::new("Export").strong()));
+                let export = egui::Button::new(RichText::new("Export").strong().color(Color32::WHITE))
+                    .fill(theme::ACCENT)
+                    .min_size(egui::vec2(88.0, 0.0));
+                let button = ui.add_enabled(blocker.is_none(), export);
                 let button = match &blocker {
                     Some(reason) => button.on_disabled_hover_text(reason),
                     None => button,
@@ -848,11 +853,13 @@ impl AsciiPainterApp {
 
     fn central(&mut self, ui: &mut Ui) {
         if let Some(error) = &self.preview.error {
-            ui.colored_label(ui.visuals().error_fg_color, error);
+            egui::Frame::NONE.inner_margin(egui::Margin::same(12)).show(ui, |ui| {
+                ui.colored_label(ui.visuals().error_fg_color, error);
+            });
         }
         if self.source.is_none() {
             ui.centered_and_justified(|ui| {
-                ui.label(RichText::new("Drop an image or video here, or use Open…").size(20.0).color(Color32::GRAY));
+                ui.label(RichText::new("Drop an image or video here, or use Open…").size(20.0).weak());
             });
             return;
         }
@@ -904,12 +911,16 @@ impl eframe::App for AsciiPainterApp {
         self.poll_preview(&ctx);
         self.poll_export(&ctx);
 
-        egui::Panel::top("toolbar").show(ui, |ui| self.toolbar(ui));
-        egui::Panel::bottom("export").show(ui, |ui| self.export_bar(ui));
-        egui::Panel::left("settings").resizable(true).default_size(340.0).show(ui, |ui| {
-            ScrollArea::vertical().show(ui, |ui| self.side_panel(ui));
-        });
-        egui::CentralPanel::default().show(ui, |ui| self.central(ui));
+        let style = ui.style().clone();
+        egui::Panel::top("toolbar").frame(theme::bar_frame(&style)).show(ui, |ui| self.toolbar(ui));
+        egui::Panel::bottom("export").frame(theme::bar_frame(&style)).show(ui, |ui| self.export_bar(ui));
+        egui::Panel::left("settings").frame(theme::side_frame(&style)).resizable(true).default_size(340.0).show(
+            ui,
+            |ui| {
+                ScrollArea::vertical().show(ui, |ui| self.side_panel(ui));
+            },
+        );
+        egui::CentralPanel::default().frame(theme::canvas_frame()).show(ui, |ui| self.central(ui));
         self.overwrite_dialog(&ctx);
 
         if self.settings != self.seen_settings {

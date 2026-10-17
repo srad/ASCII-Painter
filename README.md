@@ -28,6 +28,7 @@ Live preview, before/after and split view, presets, PNG / MP4 / TXT / ANSI expor
 | **Colour** | Mono, colour text, colour text + background; true colour, ANSI 256 / 16 or a custom palette; **chroma key** (green screen) and transparent-background PNG / WebP |
 | **Video** | Temporal stability (glyph hysteresis, colour smoothing), trimming, audio kept in MP4, rotated / anamorphic sources handled |
 | **Compare** | Original, ASCII, side-by-side and a draggable **split view**, with shared zoom and pan |
+| **Interface** | Purpose-built dark theme with clear panel hierarchy, compact controls and an accented export action |
 | **Export** | PNG, MP4 (H.264 / AAC), plain `.txt`, ANSI `.ans`, with progress, ETA and cancel |
 | **Presets** | 12 built-in (Classic, Detailed, Line Art, Colour Shapes, Braille HD, Retro Green Terminal, Newspaper, Video Stable, Green Screen, ...) plus your own, saved as TOML |
 

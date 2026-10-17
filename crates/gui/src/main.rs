@@ -2,6 +2,7 @@
 
 mod app;
 mod settings_ui;
+mod theme;
 mod viewer;
 mod worker;
 
