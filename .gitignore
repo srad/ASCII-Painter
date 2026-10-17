@@ -27,3 +27,10 @@ CLAUDE.local.md
 AGENTS.md
 GEMINI.md
 .mcp.json
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+*.gate.lock*
