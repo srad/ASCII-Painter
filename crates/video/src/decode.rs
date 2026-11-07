@@ -64,6 +64,17 @@ impl FrameReader {
         size: Size2,
         fps: Fps,
     ) -> Result<Self, VideoError> {
+        Self::spawn_cancellable(paths, input, range, size, fps, &crate::Cancellation::default())
+    }
+
+    pub fn spawn_cancellable(
+        paths: &FfmpegPaths,
+        input: &Path,
+        range: TimeRange,
+        size: Size2,
+        fps: Fps,
+        cancel: &crate::Cancellation,
+    ) -> Result<Self, VideoError> {
         let mut cmd = command(&paths.ffmpeg);
         cmd.args(input_args(input, range))
             .args(["-map", "0:v:0", "-an", "-sn", "-vf"])
@@ -72,7 +83,7 @@ impl FrameReader {
             .arg(fps.arg())
             .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
             .stdout(Stdio::piped());
-        let mut process = Process::spawn("ffmpeg", cmd)?;
+        let mut process = Process::spawn_cancellable("ffmpeg", cmd, cancel)?;
         let stdout = process.take_stdout();
         Ok(Self { process, stdout, size })
     }
@@ -111,13 +122,23 @@ impl FrameReader {
 
 /// One frame at `at` seconds, scaled to `size`.
 pub fn extract_frame(paths: &FfmpegPaths, input: &Path, at: f64, size: Size2) -> Result<RgbImage, VideoError> {
+    extract_frame_cancellable(paths, input, at, size, &crate::Cancellation::default())
+}
+
+pub fn extract_frame_cancellable(
+    paths: &FfmpegPaths,
+    input: &Path,
+    at: f64,
+    size: Size2,
+    cancel: &crate::Cancellation,
+) -> Result<RgbImage, VideoError> {
     let mut cmd = command(&paths.ffmpeg);
     cmd.args(input_args(input, TimeRange { start: Some(at.max(0.0)), end: None }))
         .args(["-map", "0:v:0", "-an", "-sn", "-frames:v", "1", "-vf"])
         .arg(scale_filter(size))
         .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
         .stdout(Stdio::piped());
-    let mut process = Process::spawn("ffmpeg", cmd)?;
+    let mut process = Process::spawn_cancellable("ffmpeg", cmd, cancel)?;
     let stdout = process.take_stdout();
     let mut reader = FrameReader { process, stdout, size };
     let frame = reader.next_frame()?;

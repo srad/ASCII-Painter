@@ -3,9 +3,46 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
+use std::sync::{
+    Arc, Mutex, Weak,
+    atomic::{AtomicBool, Ordering},
+};
 use std::thread::JoinHandle;
 
 use crate::VideoError;
+
+/// Request-scoped cancellation. Killing registered children interrupts blocked pipe I/O,
+/// not just the work between frames. No process IDs are retained or reused.
+#[derive(Clone, Default)]
+pub struct Cancellation(Arc<CancelState>);
+
+#[derive(Default)]
+struct CancelState {
+    cancelled: AtomicBool,
+    children: Mutex<Vec<Weak<Mutex<Child>>>>,
+}
+
+impl Cancellation {
+    pub fn is_cancelled(&self) -> bool {
+        self.0.cancelled.load(Ordering::Acquire)
+    }
+
+    pub fn cancel(&self) {
+        self.0.cancelled.store(true, Ordering::Release);
+        for child in self.0.children.lock().unwrap().iter().filter_map(Weak::upgrade) {
+            let _ = child.lock().unwrap().kill();
+        }
+    }
+
+    fn register(&self, child: &Arc<Mutex<Child>>) {
+        let mut children = self.0.children.lock().unwrap();
+        children.retain(|c| c.strong_count() > 0);
+        children.push(Arc::downgrade(child));
+        if self.is_cancelled() {
+            let _ = child.lock().unwrap().kill();
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FfmpegPaths {
@@ -55,12 +92,15 @@ pub(crate) fn command(program: &Path) -> Command {
 /// the child). Dropping it kills the process.
 pub(crate) struct Process {
     tool: &'static str,
-    child: Child,
+    child: Arc<Mutex<Child>>,
     stderr: Option<JoinHandle<String>>,
 }
 
 impl Process {
-    pub fn spawn(tool: &'static str, mut cmd: Command) -> Result<Self, VideoError> {
+    pub fn spawn_cancellable(tool: &'static str, mut cmd: Command, cancel: &Cancellation) -> Result<Self, VideoError> {
+        if cancel.is_cancelled() {
+            return Err(VideoError::Cancelled);
+        }
         cmd.stderr(Stdio::piped());
         let mut child = cmd.spawn().map_err(|source| VideoError::Spawn { tool, source })?;
         let mut pipe = child.stderr.take().expect("stderr piped");
@@ -69,20 +109,28 @@ impl Process {
             let _ = pipe.read_to_string(&mut text);
             text
         });
+        let child = Arc::new(Mutex::new(child));
+        cancel.register(&child);
         Ok(Self { tool, child, stderr: Some(stderr) })
     }
 
     pub fn take_stdout(&mut self) -> ChildStdout {
-        self.child.stdout.take().expect("stdout piped")
+        self.child.lock().unwrap().stdout.take().expect("stdout piped")
     }
 
     pub fn take_stdin(&mut self) -> ChildStdin {
-        self.child.stdin.take().expect("stdin piped")
+        self.child.lock().unwrap().stdin.take().expect("stdin piped")
     }
 
     /// Wait for exit; a failure carries ffmpeg's stderr.
     pub fn finish(mut self) -> Result<(), VideoError> {
-        let status: ExitStatus = self.child.wait()?;
+        // Never hold the child lock while waiting: cancellation must be able to kill it.
+        let status: ExitStatus = loop {
+            if let Some(status) = self.child.lock().unwrap().try_wait()? {
+                break status;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
         let stderr = self.stderr.take().and_then(|h| h.join().ok()).unwrap_or_default();
         if status.success() {
             Ok(())
@@ -95,8 +143,64 @@ impl Process {
 impl Drop for Process {
     fn drop(&mut self) {
         if self.stderr.is_some() {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+            let mut child = self.child.lock().unwrap();
+            let _ = child.kill();
+            let _ = child.wait();
+            drop(child);
+            if let Some(stderr) = self.stderr.take() {
+                let _ = stderr.join();
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, Write};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn blocked_child() {
+        if std::env::var_os("ASCII_PAINTER_CANCEL_TEST_CHILD").is_none() {
+            return;
+        }
+        println!("APP-CANCEL-CHILD-READY");
+        std::io::stdout().flush().unwrap();
+        loop {
+            std::thread::park_timeout(Duration::from_secs(60));
+        }
+    }
+
+    #[test]
+    fn cancellation_interrupts_blocked_pipe_io_and_reaps_the_child() {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", "ffmpeg::tests::blocked_child", "--nocapture"])
+            .env("ASCII_PAINTER_CANCEL_TEST_CHILD", "1")
+            .stdout(Stdio::piped());
+        let cancel = Cancellation::default();
+        let mut process = Process::spawn_cancellable("test-child", command, &cancel).unwrap();
+        let stdout = process.take_stdout();
+        let (ready, receive) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let mut stdout = std::io::BufReader::new(stdout);
+            let mut line = String::new();
+            while stdout.read_line(&mut line).unwrap() > 0 {
+                if line.contains("APP-CANCEL-CHILD-READY") {
+                    let _ = ready.send(());
+                    break;
+                }
+                line.clear();
+            }
+            let mut rest = String::new();
+            let _ = stdout.read_to_string(&mut rest);
+        });
+        receive.recv_timeout(Duration::from_secs(5)).expect("test child became ready");
+        let started = Instant::now();
+        cancel.cancel();
+        assert!(process.finish().is_err());
+        reader.join().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 }

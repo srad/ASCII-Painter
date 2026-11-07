@@ -16,6 +16,7 @@ fn tools() -> Option<FfmpegPaths> {
     match FfmpegPaths::locate(None) {
         Ok(paths) => Some(paths),
         Err(e) => {
+            assert!(std::env::var_os("ASCII_PAINTER_REQUIRE_MEDIA_TESTS").is_none(), "required media tools: {e}");
             eprintln!("skipping: {e}");
             None
         }

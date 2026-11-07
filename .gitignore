@@ -2,6 +2,35 @@
 /target/
 /dist/
 
+# Local editor state
+/.vs/
+/.vscode/
+/.idea/
+
+# OS metadata and editor recovery files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# Local scratch output (keep source/test fixtures includable)
+/*.tmp
+/*.bak
+/*.log
+/*.profraw
+/*.profdata
+
+# Local environment files; share examples, not secrets
+/.env
+/.env.*
+!/.env.example
+!/.env.sample
+
+# Generated upstream screenshots, not Rune source assets
+/vendor/rune/artifacts/
+
 # AI assistant state and instructions
 /.claude/
 /.codegraph/

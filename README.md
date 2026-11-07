@@ -5,14 +5,13 @@
 **Turn images and videos into high-quality ASCII art.**<br>
 Live preview, before/after and split view, presets, PNG / MP4 / TXT / ANSI export
 
-[![Rust](https://img.shields.io/badge/Rust-1.88%2B-orange?logo=rust&logoColor=white)](https://www.rust-lang.org)
-[![egui](https://img.shields.io/badge/UI-egui%20%2F%20eframe-5b8def)](https://github.com/emilk/egui)
+[![Rust](https://img.shields.io/badge/Rust-1.99.1-orange?logo=rust&logoColor=white)](https://www.rust-lang.org)
+[![Rune](https://img.shields.io/badge/UI-Rune%20%2B%20Rune%20Kit-ac8cff)](https://github.com/anomalyco/rune)
 [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)](#build-from-source)
 [![ffmpeg](https://img.shields.io/badge/ffmpeg-bundled-007808?logo=ffmpeg&logoColor=white)](#bundled-ffmpeg)
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue)](#licences)
 
-<!-- Replace with a real screenshot, e.g. docs/screenshots/split-view.png -->
-<img src="https://placehold.co/1200x675/16181d/9aa4b2?text=Screenshot%3A+split+view" alt="ASCII Painter - split view" width="860">
+<img src="docs/screenshots/split-view.png" alt="ASCII Painter Rune interface, rendered with the deterministic sunset fixture" width="860">
 
 </div>
 
@@ -28,7 +27,7 @@ Live preview, before/after and split view, presets, PNG / MP4 / TXT / ANSI expor
 | **Colour** | Mono, colour text, colour text + background; true colour, ANSI 256 / 16 or a custom palette; **chroma key** (green screen) and transparent-background PNG / WebP |
 | **Video** | Temporal stability (glyph hysteresis, colour smoothing), trimming, audio kept in MP4, rotated / anamorphic sources handled |
 | **Compare** | Original, ASCII, side-by-side and a draggable **split view**, with shared zoom and pan |
-| **Interface** | Purpose-built dark theme with clear panel hierarchy, compact controls and an accented export action |
+| **Interface** | Rune / Rune Kit, dark violet theme, large Open / Export controls, accent scrollbar, resizable settings panel and custom Windows / Linux titlebars |
 | **Export** | PNG, MP4 (H.264 / AAC), plain `.txt`, ANSI `.ans`, with progress, ETA and cancel |
 | **Presets** | 22 built-in (Classic, Detailed, Line Art, Game Boy LCD, ANSI 16 Terminal, Synthwave Poster, Green Screen, ...) plus your own, saved as TOML |
 
@@ -36,7 +35,7 @@ The preview uses the exact same renderer as the export, so what you see is what 
 
 ## Using it
 
-Unpack the release archive and run `ascii-painter` (`ascii-painter.exe`). ffmpeg is bundled, so there is nothing else to install.
+Unpack the release archive and run `ascii-painter` (`ascii-painter.exe`). No separate ffmpeg installation is needed.
 
 1. **Open** or drop an image / video (or pass it as an argument).
 2. Pick a **preset** and fine-tune the settings; the preview updates live.
@@ -61,9 +60,21 @@ With *transparent background* on, `.png` and `.webp` keep alpha; `.jpg`, `.bmp` 
 
 User presets are TOML files in the platform config folder (`.../ASCII Painter/presets`).
 
+Application preferences use versioned `preferences.json` in the same config folder. On the first
+Rune launch, previous application settings and normal/maximized/fullscreen window geometry are
+imported from `app.ron` when present; that file and preset files are left untouched. Corrupt or newer
+JSON preferences produce a visible warning and are not overwritten. Exporting over an existing file
+requires confirmation; conversion writes an adjacent staging file and replaces the destination only
+after success. A destination changed during the export must be confirmed again.
+
 ## Build from source
 
-Requires Rust 1.88+.
+The checked-in toolchain pins Rust 1.99.1. Rune is pinned to one upstream revision; the small,
+vendored native-window patch is described in [`vendor/rune/UPSTREAM.md`](vendor/rune/UPSTREAM.md).
+Linux requires a Vulkan-capable GPU/driver, X11 or Wayland, and the desktop file chooser portal
+(`xdg-desktop-portal` plus a backend such as GTK, KDE or GNOME). See `build.sh` for system packages.
+Tested configurations, dated evidence and remaining desktop / ARM64 acceptance gates are recorded in
+[`docs/rune-validation.md`](docs/rune-validation.md).
 
 ```sh
 cargo run -p ascii-painter-gui            # GUI (uses ffmpeg from PATH during development)
@@ -93,8 +104,9 @@ system libraries (see the header of `build.sh`).
 |---|---|
 | `crates/core` | Conversion library: tone, dithering, glyph matching, colour, renderers (no UI, no ffmpeg) |
 | `crates/video` | ffmpeg discovery, probe, decode / encode pipes and the export pipeline |
-| `crates/gui` | egui / eframe application (`ascii-painter`) |
+| `crates/gui` | Rune / Rune Kit application (`ascii-painter`), owned media jobs and image compositor |
 | `crates/cli` | Command-line tool (`ascii-painter-cli`) |
+| `vendor/rune` | Pinned Rune core with custom Windows / Linux window support |
 
 ## Limitations
 
@@ -109,3 +121,6 @@ runs it as a child process. See [`LICENSES/ffmpeg-NOTICE.txt`](LICENSES/ffmpeg-N
 ## Licences
 
 ASCII Painter: MIT OR Apache-2.0. Bundled font: DejaVu Sans Mono ([`LICENSES/DejaVu-LICENSE.txt`](LICENSES/DejaVu-LICENSE.txt)).
+
+Rune / Rune Kit: MIT. Inter and IBM Plex Mono: SIL Open Font License. See
+[`LICENSES/Rune-NOTICE.txt`](LICENSES/Rune-NOTICE.txt) and the accompanying license texts.

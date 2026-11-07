@@ -1,28 +1,103 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod compositor;
+mod controls;
+mod export;
+mod jobs;
+mod preferences;
+mod scenes;
 mod settings_ui;
+#[cfg(test)]
+mod tests;
 mod theme;
+mod ui;
 mod viewer;
 mod worker;
 
-fn main() -> eframe::Result {
-    let options = eframe::NativeOptions {
-        // No OS title bar: the app draws its own (see `title_bar` in app.rs). The window stays opaque
-        // and square; on Windows 11 the compositor still rounds and outlines the corners of the
-        // frameless window, anti-aliased.
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_title("ASCII Painter")
-            .with_inner_size([1400.0, 900.0])
-            .with_min_inner_size([900.0, 600.0])
-            .with_drag_and_drop(true)
-            .with_decorations(false),
-        ..Default::default()
+use std::sync::{Arc, Mutex};
+
+fn run() -> Result<(), String> {
+    let mut args: Vec<_> = std::env::args_os().skip(1).collect();
+    let initial_file = if args.first().is_some_and(|arg| arg == "--") {
+        args.remove(0);
+        (!args.is_empty()).then(|| std::path::PathBuf::from(args.remove(0)))
+    } else if args.first().is_some_and(|arg| !arg.to_string_lossy().starts_with('-')) {
+        Some(std::path::PathBuf::from(args.remove(0)))
+    } else {
+        None
     };
-    let initial_file = std::env::args_os().nth(1).map(std::path::PathBuf::from);
-    eframe::run_native(
-        "ASCII Painter",
-        options,
-        Box::new(|cc| Ok(Box::new(app::AsciiPainterApp::new(cc, initial_file)))),
-    )
+    let argv = args
+        .into_iter()
+        .map(|a| a.into_string().map_err(|_| "Rune tooling arguments must be valid Unicode".to_owned()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let headless = rune::tooling::Args::parse_from(argv.clone()).headless();
+    let mut state = if headless { app::State::default() } else { app::State::native(initial_file.clone()) };
+    if headless && initial_file.is_some() {
+        state.initial_file = initial_file;
+        state.services_enabled = true;
+        state.locate_ffmpeg();
+    }
+    let window = state.prefs.window;
+    let fatal = Arc::new(Mutex::new(None));
+    state.fatal = fatal.clone();
+    let spec = rune::AppSpec {
+        scenes: scenes::SCENES,
+        min_size: Some((900.0, 600.0)),
+        setup: Some(app::setup),
+        poll: Some(app::poll),
+        on_key: Some(ui::on_key),
+        fonts: &[
+            include_bytes!("../../../vendor/rune/assets/Inter-Regular.ttf"),
+            include_bytes!("../../../vendor/rune/assets/Inter-Medium.ttf"),
+            include_bytes!("../../../vendor/rune/assets/Inter-SemiBold.ttf"),
+            ascii_painter_core::glyphs::FONT_BYTES,
+        ],
+        families: ("Inter", "DejaVu Sans Mono"),
+        ..rune::AppSpec::new("ASCII Painter", window.size, app::State::default, ui::view)
+    };
+    rune::set_app_id("ascii-painter");
+    let app = rune::App::new(spec)
+        .args(argv)
+        .titlebar(rune::Titlebar::new(36.0))
+        .keep_running()
+        .on_close(app::close)
+        .window_options(rune::WindowOptions {
+            min_size: Some((900.0, 600.0)),
+            position: window.position,
+            maximized: window.maximized,
+            fullscreen: window.fullscreen,
+            ..Default::default()
+        })
+        .compositor(compositor::ViewerCompositor::default());
+    let handle = app.handle();
+    let updates = handle.clone();
+    let app = app
+        .init(move || {
+            state.app_handle = (!headless).then_some(handle);
+            state
+        })
+        .on_window(move |window| {
+            let window = window.clone();
+            updates.update(move |s, _| s.window = Some(window));
+        });
+    app.try_run()?;
+    let error = fatal.lock().unwrap().take();
+    if let Some(error) = error {
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("ASCII Painter could not start: {error}");
+        #[cfg(target_os = "windows")]
+        rfd::MessageDialog::new()
+            .set_title("ASCII Painter could not start")
+            .set_description(&error)
+            .set_level(rfd::MessageLevel::Error)
+            .show();
+        std::process::exit(1);
+    }
 }

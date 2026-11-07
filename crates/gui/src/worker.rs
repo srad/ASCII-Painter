@@ -5,12 +5,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
+use crate::viewer::ViewerImage;
 use ascii_painter_core::glyphs::font_cell;
 use ascii_painter_core::load::flatten;
 use ascii_painter_core::{ConvertInput, Converter, GridSize, Rgb, Settings, Size2};
-use ascii_painter_video::decode::{decode_size, extract_frame};
-use ascii_painter_video::{FfmpegPaths, MediaInfo};
-use image::{DynamicImage, RgbImage, RgbaImage};
+use ascii_painter_video::decode::{decode_size, extract_frame_cancellable};
+use ascii_painter_video::{Cancellation, FfmpegPaths, MediaInfo};
+use image::{DynamicImage, RgbImage};
 
 #[derive(Clone)]
 pub enum PreviewSource {
@@ -20,6 +21,7 @@ pub enum PreviewSource {
 
 pub struct PreviewRequest {
     pub generation: u64,
+    pub source_generation: u64,
     pub settings: Settings,
     pub source: PreviewSource,
     /// Largest texture side the GUI can show.
@@ -27,9 +29,9 @@ pub struct PreviewRequest {
 }
 
 pub struct PreviewOutput {
-    pub ascii: RgbaImage,
+    pub ascii: Arc<ViewerImage>,
     /// A new original frame (video only, when the time changed).
-    pub original: Option<RgbImage>,
+    pub original: Option<Arc<ViewerImage>>,
     pub grid: GridSize,
     /// Pixel size of a real export.
     pub output_size: Size2,
@@ -44,15 +46,17 @@ pub struct PreviewResponse {
 }
 
 pub struct PreviewWorker {
-    requests: Sender<PreviewRequest>,
+    requests: Option<Sender<(PreviewRequest, Cancellation)>>,
     responses: Receiver<PreviewResponse>,
+    active: std::sync::Mutex<Cancellation>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl PreviewWorker {
-    pub fn spawn(ctx: eframe::egui::Context) -> Self {
-        let (requests, inbox) = channel::<PreviewRequest>();
+    pub fn spawn(wake: rune::Waker) -> Self {
+        let (requests, inbox) = channel::<(PreviewRequest, Cancellation)>();
         let (outbox, responses) = channel();
-        std::thread::Builder::new()
+        let thread = std::thread::Builder::new()
             .name("preview".into())
             .spawn(move || {
                 let mut cache = Cache::default();
@@ -60,36 +64,63 @@ impl PreviewWorker {
                     while let Ok(newer) = inbox.try_recv() {
                         request = newer;
                     }
+                    let (request, cancel) = request;
+                    if cancel.is_cancelled() {
+                        continue;
+                    }
                     let generation = request.generation;
-                    let result = process(&mut cache, request);
+                    let result = process(&mut cache, request, &cancel);
                     if outbox.send(PreviewResponse { generation, result }).is_err() {
                         return;
                     }
-                    ctx.request_repaint();
+                    wake();
                 }
             })
             .expect("spawn preview thread");
-        Self { requests, responses }
+        Self { requests: Some(requests), responses, active: std::sync::Mutex::default(), thread: Some(thread) }
     }
 
     pub fn request(&self, request: PreviewRequest) {
-        let _ = self.requests.send(request);
+        let mut active = self.active.lock().unwrap();
+        active.cancel();
+        *active = Cancellation::default();
+        if let Some(requests) = &self.requests {
+            let _ = requests.send((request, active.clone()));
+        }
     }
 
     pub fn poll(&self) -> Option<PreviewResponse> {
         self.responses.try_iter().last()
+    }
+
+    pub fn cancel(&self) {
+        self.active.lock().unwrap().cancel();
+    }
+    pub fn is_finished(&self) -> bool {
+        self.thread.as_ref().is_none_or(std::thread::JoinHandle::is_finished)
+    }
+}
+
+impl Drop for PreviewWorker {
+    fn drop(&mut self) {
+        self.cancel();
+        self.requests.take();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 
 /// Decoded inputs reused across requests.
 #[derive(Default)]
 struct Cache {
+    source_generation: u64,
     /// (image identity, background) → flattened RGB.
-    still: Option<(usize, Rgb, Arc<RgbImage>)>,
+    still: Option<(Arc<DynamicImage>, Rgb, Arc<RgbImage>)>,
     /// (path, time, size) → frame scaled for conversion.
     sampled: Option<(PathBuf, u64, Size2, Arc<RgbImage>)>,
     /// (path, time) of the last original frame sent to the GUI.
-    shown: Option<(PathBuf, u64)>,
+    shown: Option<(PathBuf, u64, Size2, Arc<ViewerImage>)>,
 }
 
 /// Fit `size` inside a square of `max` keeping aspect.
@@ -115,22 +146,24 @@ fn reduced_font_px(font_px: f32, grid: GridSize, limit: u32) -> f32 {
     px
 }
 
-fn process(cache: &mut Cache, request: PreviewRequest) -> Result<PreviewOutput, String> {
+fn process(cache: &mut Cache, request: PreviewRequest, cancel: &Cancellation) -> Result<PreviewOutput, String> {
+    if cache.source_generation != request.source_generation {
+        *cache = Cache { source_generation: request.source_generation, ..Default::default() };
+    }
     let converter = Converter::new(request.settings.clone()).map_err(|e| e.to_string())?;
     let mut original = None;
     let (image, display) = match &request.source {
         PreviewSource::Image(source) => {
-            let id = Arc::as_ptr(source) as usize;
             let bg = request.settings.color.bg;
             let rgb = match &cache.still {
                 Some((cached, cached_bg, rgb))
-                    if *cached == id && (*cached_bg == bg || !source.color().has_alpha()) =>
+                    if Arc::ptr_eq(cached, source) && (*cached_bg == bg || !source.color().has_alpha()) =>
                 {
                     rgb.clone()
                 }
                 _ => {
                     let rgb = Arc::new(flatten(source.as_ref().clone(), bg));
-                    cache.still = Some((id, bg, rgb.clone()));
+                    cache.still = Some((source.clone(), bg, rgb.clone()));
                     rgb
                 }
             };
@@ -144,16 +177,24 @@ fn process(cache: &mut Cache, request: PreviewRequest) -> Result<PreviewOutput, 
             let frame = match &cache.sampled {
                 Some((p, t, s, frame)) if p == path && *t == key && *s == size => frame.clone(),
                 _ => {
-                    let frame = Arc::new(extract_frame(paths, path, *time, size).map_err(|e| e.to_string())?);
+                    let frame = Arc::new(
+                        extract_frame_cancellable(paths, path, *time, size, cancel).map_err(|e| e.to_string())?,
+                    );
                     cache.sampled = Some((path.clone(), key, size, frame.clone()));
                     frame
                 }
             };
-            if cache.shown.as_ref() != Some(&(path.clone(), key)) {
-                let size = fit_within(info.display, request.max_side.min(2048));
-                original = Some(extract_frame(paths, path, *time, size).map_err(|e| e.to_string())?);
-                cache.shown = Some((path.clone(), key));
-            }
+            let size = fit_within(info.display, request.max_side.min(2048));
+            let shown = match &cache.shown {
+                Some((p, t, s, image)) if p == path && *t == key && *s == size => image.clone(),
+                _ => {
+                    let rgb = extract_frame_cancellable(paths, path, *time, size, cancel).map_err(|e| e.to_string())?;
+                    let image = ViewerImage::new(DynamicImage::ImageRgb8(rgb).into_rgba8());
+                    cache.shown = Some((path.clone(), key, size, image.clone()));
+                    image
+                }
+            };
+            original = Some(shown);
             (frame, info.display)
         }
     };
@@ -167,6 +208,10 @@ fn process(cache: &mut Cache, request: PreviewRequest) -> Result<PreviewOutput, 
     } else {
         (converter.render(&frame), false)
     };
+    if cancel.is_cancelled() {
+        return Err("cancelled".into());
+    }
+    let ascii = ViewerImage::new(ascii);
     Ok(PreviewOutput { ascii, original, grid, output_size, reduced, rejected: converter.rejected_chars().to_vec() })
 }
 
@@ -185,10 +230,16 @@ mod tests {
         let mut settings = Settings::default();
         settings.grid.columns = 2000;
         let image = Arc::new(DynamicImage::ImageRgb8(RgbImage::new(400, 300)));
-        let request = PreviewRequest { generation: 1, settings, source: PreviewSource::Image(image), max_side: 2048 };
-        let out = process(&mut Cache::default(), request).unwrap();
+        let request = PreviewRequest {
+            generation: 1,
+            source_generation: 1,
+            settings,
+            source: PreviewSource::Image(image),
+            max_side: 2048,
+        };
+        let out = process(&mut Cache::default(), request, &Cancellation::default()).unwrap();
         assert!(out.reduced);
-        assert!(out.ascii.width() <= 2048 && out.ascii.height() <= 2048);
+        assert!(out.ascii.levels[0].width() <= 2048 && out.ascii.levels[0].height() <= 2048);
         assert!(out.output_size.w > 2048);
     }
 }

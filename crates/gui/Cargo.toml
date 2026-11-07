@@ -13,7 +13,20 @@ path = "src/main.rs"
 ascii-painter-core.workspace = true
 ascii-painter-video.workspace = true
 anyhow.workspace = true
-eframe.workspace = true
 image.workspace = true
-rfd.workspace = true
 serde.workspace = true
+rune.workspace = true
+rune-kit.workspace = true
+directories.workspace = true
+serde_json.workspace = true
+ron = "0.12"
+tempfile = "3.27"
+wgpu = { version = "~30.0.1", default-features = false, features = ["std", "wgsl"] }
+bytemuck = { version = "1.25", features = ["derive"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# Only the fatal startup error dialog; ordinary dialogs belong to Rune.
+rfd.workspace = true
+
+[dev-dependencies]
+naga = { version = "~30.0.1", features = ["wgsl-in"] }

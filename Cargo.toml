@@ -1,11 +1,12 @@
 [workspace]
 resolver = "3"
 members = ["crates/core", "crates/video", "crates/gui", "crates/cli"]
+exclude = ["vendor/rune"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.99"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
@@ -16,7 +17,8 @@ anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
 crossterm = "0.29.0"
 directories = "6.0.0"
-eframe = { version = "0.37.0", features = ["persistence"] }
+rune = { path = "vendor/rune", default-features = false, features = ["accessibility", "native-file-dialog", "svg"] }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "ccb4823f55749dfa667891ef7f8427017e960056" }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "ico", "pnm", "tga", "qoi", "hdr", "rayon"] }
 rayon = "1.12.0"
 rfd = "0.17.2"
@@ -25,6 +27,9 @@ serde_json = "1.0.154"
 thiserror = "2.0.21"
 toml = "1.1.8"
 unicode-width = "0.2.2"
+
+[patch."https://github.com/anomalyco/rune"]
+rune = { path = "vendor/rune" }
 
 [profile.dev.package."*"]
 opt-level = 3

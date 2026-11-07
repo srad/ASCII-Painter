@@ -100,6 +100,14 @@ pub struct Encoder {
 
 impl Encoder {
     pub fn spawn(paths: &FfmpegPaths, req: EncodeRequest) -> Result<Self, VideoError> {
+        Self::spawn_cancellable(paths, req, &crate::Cancellation::default())
+    }
+
+    pub fn spawn_cancellable(
+        paths: &FfmpegPaths,
+        req: EncodeRequest,
+        cancel: &crate::Cancellation,
+    ) -> Result<Self, VideoError> {
         let size = req.size;
         if size.w % 2 == 1 || size.h % 2 == 1 || size.w > MAX_SIDE || size.h > MAX_SIDE {
             return Err(VideoError::Encode(format!("unsupported output size {}×{}", size.w, size.h)));
@@ -139,7 +147,7 @@ impl Encoder {
             cmd.args(["-c:a", "aac", "-b:a", "192k", "-shortest"]);
         }
         cmd.args(["-movflags", "+faststart"]).arg(req.output).stdin(Stdio::piped()).stdout(Stdio::null());
-        let mut process = Process::spawn("ffmpeg", cmd)?;
+        let mut process = Process::spawn_cancellable("ffmpeg", cmd, cancel)?;
         let stdin = process.take_stdin();
         Ok(Self { process, stdin, size })
     }

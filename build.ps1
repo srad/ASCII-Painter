@@ -1,6 +1,7 @@
 # Build ASCII Painter for Windows x64 into dist\ascii-painter-windows-x64.zip.
 # The zip is portable: ascii-painter.exe (GUI), ascii-painter-cli.exe and a bundled ffmpeg/ffprobe.
 # Usage: .\build.ps1
+param([string]$DestinationRoot = 'dist')
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
@@ -13,11 +14,16 @@ $FfmpegDir = 'ffmpeg-9.0.2-essentials_build/bin'
 # target\release it once flagged, even after the folder is excluded.
 $target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { 'target\package' }
 $name = 'ascii-painter-windows-x64'
-$out = "dist/$name"
+$workspaceRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+$distRoot = [IO.Path]::GetFullPath($(if ([IO.Path]::IsPathRooted($DestinationRoot)) { $DestinationRoot } else { Join-Path $workspaceRoot $DestinationRoot }))
+if (-not $distRoot.StartsWith($workspaceRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'The destination must be a subdirectory of this workspace.'
+}
+$out = Join-Path $distRoot $name
 $cache = 'dist/cache'
 
 Write-Host '==> Building (release)'
-cargo build --release --workspace --target-dir $target
+cargo build --release --workspace --locked --target-dir $target
 if ($LASTEXITCODE -ne 0) {
     throw @"
 cargo build failed. If the error is "failed to link or copy ... build-script-build.exe ... Access denied",
@@ -40,10 +46,16 @@ if (-not (Test-Path $archive) -or (Get-FileHash $archive -Algorithm SHA256).Hash
 }
 
 Write-Host "==> Assembling $out"
-if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+if (Test-Path -LiteralPath $out) {
+    if ((Get-Item -LiteralPath $out).LinkType) { throw 'Refusing to replace a linked package directory.' }
+    if ([IO.Path]::GetFullPath($out) -ne (Join-Path $distRoot $name)) { throw 'Unexpected package directory.' }
+    Remove-Item -LiteralPath $out -Recurse -Force
+}
 New-Item -ItemType Directory -Force $out | Out-Null
 Copy-Item "$target/release/ascii-painter.exe", "$target/release/ascii-painter-cli.exe", README.md $out
 Copy-Item -Recurse LICENSES $out
+New-Item -ItemType Directory -Path (Join-Path $out 'docs') -Force | Out-Null
+Copy-Item -LiteralPath 'docs/screenshots' -Destination (Join-Path $out 'docs/screenshots') -Recurse
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $archive))
 try {
@@ -56,5 +68,5 @@ try {
     $zip.Dispose()
 }
 
-Compress-Archive -Path $out -DestinationPath "dist/$name.zip" -Force
-Write-Host "==> Done: dist/$name.zip (run $out/ascii-painter.exe)"
+Compress-Archive -Path $out -DestinationPath (Join-Path $distRoot "$name.zip") -Force
+Write-Host "==> Done: $distRoot/$name.zip (run $out/ascii-painter.exe)"

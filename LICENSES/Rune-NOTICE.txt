@@ -1,0 +1,12 @@
+Rune and Rune Kit
+https://github.com/anomalyco/rune
+Pinned source: ccb4823f55749dfa667891ef7f8427017e960056
+License: MIT (Rune-MIT.txt)
+
+Rune core is vendored with application-specific native window extensions.
+See vendor/rune/UPSTREAM.md in the source distribution for the patch scope.
+Supporting Rune crates use the same upstream revision.
+
+Inter: SIL Open Font License (Inter-LICENSE.txt).
+IBM Plex Mono: SIL Open Font License (IBMPlexMono-LICENSE.txt).
+The application's conversion font remains DejaVu Sans Mono (DejaVu-LICENSE.txt).

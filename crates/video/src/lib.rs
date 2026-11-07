@@ -4,11 +4,13 @@
 pub mod decode;
 pub mod encode;
 pub mod ffmpeg;
+pub mod output;
 pub mod pipeline;
 pub mod probe;
 
 pub use encode::EncodeQuality;
-pub use ffmpeg::FfmpegPaths;
+pub use ffmpeg::{Cancellation, FfmpegPaths};
+pub use output::OutputPolicy;
 pub use pipeline::{ExportEvent, ExportJob, ExportRequest, Progress, VideoFormat};
 pub use probe::{Fps, MediaInfo, probe};
 

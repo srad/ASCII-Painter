@@ -4,6 +4,8 @@
 # bundled ffmpeg/ffprobe.
 # Needs: cargo, curl, unzip, sha256sum, and the GUI's system libraries, e.g. on Debian/Ubuntu:
 #   sudo apt install libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+# Runtime: a Vulkan-capable driver/loader (libvulkan1; mesa-vulkan-drivers for Mesa),
+# X11 or Wayland, and xdg-desktop-portal plus the desktop's portal backend for file dialogs.
 # Usage: ./build.sh
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -29,12 +31,17 @@ case "$(uname -m)" in
 esac
 
 target="${CARGO_TARGET_DIR:-target}"
+dist_root="$(realpath -m -- "${ASCII_PAINTER_DIST_DIR:-dist}")"
+case "$dist_root" in
+    "$PWD"/*) ;;
+    *) echo "the destination must be a subdirectory of this workspace" >&2; exit 1 ;;
+esac
 name="ascii-painter-linux-$arch"
-out="dist/$name"
+out="$dist_root/$name"
 cache=dist/cache
 
 echo "==> Building (release)"
-cargo build --release --workspace
+cargo build --release --workspace --locked
 
 echo "==> Fetching ffmpeg"
 mkdir -p "$cache"
@@ -56,12 +63,18 @@ fetch() { # tool sha256
 }
 
 echo "==> Assembling $out"
-rm -rf "$out"
+if [[ -L "$out" || "$(realpath -m -- "$out")" != "$dist_root/$name" ]]; then
+    echo "refusing to replace a linked or unexpected package directory" >&2
+    exit 1
+fi
+rm -rf -- "$out"
 mkdir -p "$out"
-cp "$target/release/ascii-painter" "$target/release/ascii-painter-cli" README.md "$out/"
-cp -r LICENSES "$out/"
+cp -f "$target/release/ascii-painter" "$target/release/ascii-painter-cli" README.md "$out/"
+cp -rf LICENSES "$out/"
+mkdir -p "$out/docs"
+cp -rf docs/screenshots "$out/docs/"
 fetch ffmpeg "$ffmpeg_sha"
 fetch ffprobe "$ffprobe_sha"
 
-tar -czf "dist/$name.tar.gz" -C dist "$name"
-echo "==> Done: dist/$name.tar.gz (run $out/ascii-painter)"
+tar -czf "$dist_root/$name.tar.gz" -C "$dist_root" "$name"
+echo "==> Done: $dist_root/$name.tar.gz (run $out/ascii-painter)"

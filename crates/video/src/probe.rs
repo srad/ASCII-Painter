@@ -102,9 +102,17 @@ struct Stream {
 }
 
 pub fn probe(paths: &FfmpegPaths, input: &Path) -> Result<MediaInfo, VideoError> {
+    probe_cancellable(paths, input, &crate::Cancellation::default())
+}
+
+pub fn probe_cancellable(
+    paths: &FfmpegPaths,
+    input: &Path,
+    cancel: &crate::Cancellation,
+) -> Result<MediaInfo, VideoError> {
     let mut cmd = command(&paths.ffprobe);
     cmd.args(["-print_format", "json", "-show_streams", "-show_format"]).arg(input).stdout(Stdio::piped());
-    let mut process = Process::spawn("ffprobe", cmd)?;
+    let mut process = Process::spawn_cancellable("ffprobe", cmd, cancel)?;
     let mut json = String::new();
     std::io::Read::read_to_string(&mut process.take_stdout(), &mut json)?;
     process.finish()?;

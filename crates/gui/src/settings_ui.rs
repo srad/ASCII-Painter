@@ -1,187 +1,383 @@
-//! The conversion settings controls.
-
-use ascii_painter_core::Rgb;
-use ascii_painter_core::settings::{
-    CharsetPreset, ColorMode, Control, Detail, Dither, MAX_COLUMNS, MIN_COLUMNS, MappingMode, PaletteKind, Polarity,
-    RampOrder, Settings,
+//! The complete conversion settings surface. Relevance remains owned by the core crate.
+use crate::{
+    app::State,
+    controls::{self, ColorTarget, Number, number},
+    theme,
 };
-use eframe::egui::{self, CollapsingHeader, ComboBox, Slider, Ui};
+use ascii_painter_core::{
+    Rgb,
+    settings::{CharsetPreset, ColorMode, Control, Detail, Dither, MappingMode, PaletteKind, Polarity, RampOrder},
+};
+use rune::{El, col, el, row};
+use rune_kit::{Button, ButtonVariant, Checkbox, Kit, Select, SelectAppearance, TextInput};
 
-use crate::theme;
-
-/// Facts about the loaded input that change which controls are shown.
-pub struct PanelFacts<'a> {
-    pub is_video: bool,
-    pub rejected_chars: &'a [char],
+pub struct Choice<T: 'static> {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub current: T,
+    pub options: &'static [T],
+    pub name: fn(T) -> &'static str,
+    pub set: fn(&mut State, T),
+    pub enabled: bool,
 }
 
-fn combo<T: Copy + PartialEq>(ui: &mut Ui, label: &str, value: &mut T, options: &[T], name: fn(T) -> &'static str) {
-    ComboBox::from_label(label).selected_text(name(*value)).show_ui(ui, |ui| {
-        for &option in options {
-            ui.selectable_value(value, option, name(option));
-        }
-    });
+pub fn choice<T: Copy + PartialEq + 'static>(s: &State, k: &Kit, overlays: &mut Vec<El>, choice: Choice<T>) -> El {
+    let Choice { key, label, current, options, name, set, enabled } = choice;
+    let labels: Vec<_> = options.iter().map(|v| name(*v)).collect();
+    let select = Select::new(key, &labels)
+        .label(label)
+        .current(Some(name(current)))
+        .width(200.0)
+        .appearance(SelectAppearance::Field)
+        .disabled(!enabled)
+        .open(s.open_select.as_deref() == Some(key))
+        .on_toggle(move |s: &mut State| {
+            s.open_select = if s.open_select.as_deref() == Some(key) { None } else { Some(key.into()) };
+        })
+        .on_close(|s: &mut State| s.open_select = None)
+        .on_choose(move |s: &mut State, value, _| {
+            if let Some(&option) = options.iter().find(|v| name(**v) == value) {
+                set(s, option);
+            }
+            s.open_select = None;
+        })
+        .build(k, overlays);
+    col().w_full().gap(6.0).child(theme::muted(label)).child(select.w_full())
 }
 
-fn color_button(ui: &mut Ui, label: &str, color: &mut Rgb) {
-    ui.horizontal(|ui| {
-        let mut rgb = [color.r, color.g, color.b];
-        if ui.color_edit_button_srgb(&mut rgb).changed() {
-            *color = Rgb::new(rgb[0], rgb[1], rgb[2]);
-        }
-        ui.label(label);
-    });
+fn check(
+    k: &Kit,
+    key: &'static str,
+    label: &'static str,
+    checked: bool,
+    enabled: bool,
+    f: impl Fn(&mut State) + 'static,
+) -> El {
+    Checkbox::new(checked).label(label).disabled(!enabled).on_toggle(f).build(k).key(key)
 }
 
-fn section(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
-    theme::card_frame().show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        CollapsingHeader::new(theme::card_title(title)).id_salt(title).default_open(true).show(ui, add);
-    });
+fn section(s: &State, k: &Kit, title: &'static str, body: El) -> El {
+    let closed = s.collapsed.contains(title);
+    let header = Button::new(format!("{}  {title}", if closed { "+" } else { "−" }))
+        .variant(ButtonVariant::GhostMuted)
+        .on_press(move |s: &mut State| {
+            if !s.collapsed.remove(title) {
+                s.collapsed.insert(title);
+            }
+        })
+        .build(k)
+        .w_full();
+    col()
+        .key(title)
+        .w_full()
+        .gap(8.0)
+        .padding(12.0)
+        .radius(10.0)
+        .fill(theme::RAISED)
+        .border(1.0, theme::BORDER)
+        .child(header)
+        .children((!closed).then_some(body))
 }
 
-pub fn settings_panel(ui: &mut Ui, s: &mut Settings, facts: &PanelFacts) {
-    section(ui, "Grid", |ui| {
-        theme::slider(
-            ui,
-            Slider::new(&mut s.grid.columns, MIN_COLUMNS..=MAX_COLUMNS).logarithmic(true).text("columns"),
+fn color_button(_k: &Kit, key: &str, label: &str, rgb: Rgb, target: ColorTarget) -> El {
+    row()
+        .gap(10.0)
+        .items_center()
+        .child(
+            el().key(key)
+                .size(32.0, 24.0)
+                .radius(5.0)
+                .fill(theme::rgb(rgb))
+                .border(1.0, theme::BORDER)
+                .role("button")
+                .label(format!("Edit {label} colour"))
+                .focusable(true)
+                .on_press(move |s: &mut State| controls::open_color(s, target, rgb)),
+        )
+        .child(theme::label(label))
+}
+
+pub fn panel(s: &State, k: &Kit, overlays: &mut Vec<El>) -> El {
+    let p = &s.prefs.settings;
+    let grid = col()
+        .w_full()
+        .gap(10.0)
+        .child(number(s, k, "columns", "Columns", Number::Columns, true))
+        .child(check(k, "terminal-aspect", "Terminal cell aspect", p.grid.cell_aspect_override.is_some(), true, |s| {
+            let slot = &mut s.prefs.settings.grid.cell_aspect_override;
+            *slot = if slot.is_some() { None } else { Some(0.5) };
+        }))
+        .children(
+            p.grid.cell_aspect_override.map(|_| number(s, k, "aspect", "Cell width ÷ height", Number::Aspect, true)),
         );
-        let mut custom = s.grid.cell_aspect_override.is_some();
-        ui.checkbox(&mut custom, "Terminal cell aspect")
-            .on_hover_text("Shape the grid for display in a terminal instead of the PNG/MP4 font.");
-        match (custom, &mut s.grid.cell_aspect_override) {
-            (true, Some(aspect)) => {
-                theme::slider(ui, Slider::new(aspect, 0.3..=1.0).text("cell width ÷ height"));
-            }
-            (true, slot @ None) => *slot = Some(0.5),
-            (false, slot) => *slot = None,
-        }
-    });
 
-    section(ui, "Mapping", |ui| {
-        combo(ui, "mode", &mut s.mapping, &MappingMode::ALL, MappingMode::label);
-        ui.add_enabled_ui(s.relevant(Control::Charset), |ui| {
-            combo(ui, "characters", &mut s.charset.preset, &CharsetPreset::ALL, CharsetPreset::label);
-            if s.charset.preset == CharsetPreset::Custom {
-                ui.add(
-                    egui::TextEdit::singleline(&mut s.charset.custom)
-                        .font(egui::TextStyle::Monospace)
-                        .hint_text("light → dense"),
-                );
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut s.charset.order, RampOrder::ByDensity, "sort by ink");
-                    ui.radio_value(&mut s.charset.order, RampOrder::AsWritten, "as written");
-                });
-            }
-            if !facts.rejected_chars.is_empty() {
-                let list: String = facts.rejected_chars.iter().map(|c| format!("{c:?} ")).collect();
-                ui.colored_label(ui.visuals().warn_fg_color, format!("ignored: {list}"));
-            }
-        });
-        ui.add_enabled_ui(s.relevant(Control::Dither), |ui| {
-            combo(ui, "dithering", &mut s.dither, &Dither::ALL, Dither::label);
-        });
-    });
-
-    section(ui, "Tone", |ui| {
-        ui.horizontal(|ui| {
-            ui.radio_value(&mut s.tone.detail, Detail::Full, "full image");
-            ui.radio_value(&mut s.tone.detail, Detail::EdgesOnly, "edges only");
-        });
-        theme::slider(ui, Slider::new(&mut s.tone.brightness, -1.0..=1.0).text("brightness"));
-        theme::slider(ui, Slider::new(&mut s.tone.contrast, 0.0..=3.0).text("contrast"));
-        theme::slider(ui, Slider::new(&mut s.tone.gamma, 0.2..=5.0).logarithmic(true).text("gamma"));
-        theme::slider(ui, Slider::new(&mut s.tone.saturation, 0.0..=3.0).text("saturation"));
-        theme::slider(ui, Slider::new(&mut s.tone.sharpen, 0.0..=3.0).text("sharpen"));
-        theme::slider(ui, Slider::new(&mut s.tone.edge_boost, 0.0..=2.0).text("edge boost"));
-        theme::slider(ui, Slider::new(&mut s.tone.denoise, 0.0..=1.0).text("denoise"))
-            .on_hover_text("Edge-preserving noise reduction; calms grain and video flicker.");
-        ui.checkbox(&mut s.tone.auto_levels, "auto levels")
-            .on_hover_text("Stretch the image's own darkest and brightest tones to the full range.");
-        ui.add_enabled_ui(!s.tone.auto_levels, |ui| {
-            theme::slider(ui, Slider::new(&mut s.tone.black_point, 0.0..=0.99).text("black point"));
-            theme::slider(ui, Slider::new(&mut s.tone.white_point, 0.01..=1.0).text("white point"));
-        });
-        theme::slider(ui, Slider::new(&mut s.tone.shadows, -1.0..=1.0).text("shadows"));
-        theme::slider(ui, Slider::new(&mut s.tone.highlights, -1.0..=1.0).text("highlights"));
-        let mut inverted = s.tone.polarity == Polarity::Inverted;
-        if ui.checkbox(&mut inverted, "invert").changed() {
-            s.tone.polarity = if inverted { Polarity::Inverted } else { Polarity::Normal };
-        }
-        if ui.button("Reset tone").clicked() {
-            s.tone = Default::default();
-        }
-    });
-
-    section(ui, "Colour", |ui| {
-        combo(ui, "colour mode", &mut s.color.mode, &ColorMode::ALL, ColorMode::label);
-        if s.relevant(Control::Foreground) {
-            color_button(ui, "text", &mut s.color.fg);
-        }
-        if s.relevant(Control::Background) {
-            color_button(ui, "background", &mut s.color.bg);
-        }
-        if s.relevant(Control::Foreground) && ui.button("⇄ swap").clicked() {
-            std::mem::swap(&mut s.color.fg, &mut s.color.bg);
-        }
-        ui.add_enabled_ui(s.relevant(Control::Palette), |ui| {
-            combo(ui, "palette", &mut s.color.palette, &PaletteKind::ALL, PaletteKind::label);
-            if s.color.palette == PaletteKind::Custom {
-                let mut remove = None;
-                ui.horizontal_wrapped(|ui| {
-                    for (i, color) in s.color.custom_palette.iter_mut().enumerate() {
-                        let mut rgb = [color.r, color.g, color.b];
-                        let response = ui.color_edit_button_srgb(&mut rgb);
-                        if response.changed() {
-                            *color = Rgb::new(rgb[0], rgb[1], rgb[2]);
-                        }
-                        if response.secondary_clicked() {
-                            remove = Some(i);
-                        }
-                    }
-                    if ui.button("+").clicked() {
-                        s.color.custom_palette.push(Rgb::new(128, 128, 128));
-                    }
-                });
-                if let Some(i) = remove.filter(|_| s.color.custom_palette.len() > 1) {
-                    s.color.custom_palette.remove(i);
-                }
-                ui.weak("right-click a colour to remove it");
-            }
-        });
-        let mut keyed = s.color.chroma_key.is_some();
-        ui.checkbox(&mut keyed, "chroma key")
-            .on_hover_text("Replace a backdrop colour (green screen) with the background.");
-        match (keyed, &mut s.color.chroma_key) {
-            (true, Some(key)) => {
-                color_button(ui, "key colour", key);
-                theme::slider(ui, Slider::new(&mut s.color.key_tolerance, 0.0..=1.0).text("key tolerance"));
-            }
-            (true, slot @ None) => *slot = Some(Rgb::new(0, 255, 0)),
-            (false, slot) => *slot = None,
-        }
-    });
-
-    if facts.is_video {
-        section(ui, "Video stability", |ui| {
-            ui.add_enabled_ui(s.relevant(Control::Hysteresis), |ui| {
-                theme::slider(ui, Slider::new(&mut s.temporal.hysteresis, 0.0..=1.0).text("glyph hysteresis"))
-                    .on_hover_text(
-                        "Keep the previous frame's character unless the new one fits clearly better. Reduces flicker.",
-                    );
-            });
-            ui.add_enabled_ui(s.relevant(Control::ColorSmoothing), |ui| {
-                theme::slider(ui, Slider::new(&mut s.temporal.color_smoothing, 0.0..=0.95).text("colour smoothing"));
-            });
-            ui.weak("Temporal settings apply to exports; the preview shows a single frame.");
-        });
+    let mut mapping = col()
+        .w_full()
+        .gap(10.0)
+        .child(choice(
+            s,
+            k,
+            overlays,
+            Choice {
+                key: "mapping",
+                label: "Mapping mode",
+                current: p.mapping,
+                options: &MappingMode::ALL,
+                name: MappingMode::label,
+                set: |s, v| s.prefs.settings.mapping = v,
+                enabled: true,
+            },
+        ))
+        .child(choice(
+            s,
+            k,
+            overlays,
+            Choice {
+                key: "charset",
+                label: "Characters",
+                current: p.charset.preset,
+                options: &CharsetPreset::ALL,
+                name: CharsetPreset::label,
+                set: |s, v| s.prefs.settings.charset.preset = v,
+                enabled: p.relevant(Control::Charset),
+            },
+        ));
+    if p.charset.preset == CharsetPreset::Custom && p.relevant(Control::Charset) {
+        mapping = mapping
+            .child(
+                TextInput::new(&s.charset)
+                    .label("Custom character ramp")
+                    .placeholder("light → dense")
+                    .on_edit(|s: &mut State| &mut s.charset)
+                    .on_change(|s: &mut State, _| s.prefs.settings.charset.custom = s.charset.text.clone())
+                    .build(k)
+                    .key("custom-charset")
+                    .w_full(),
+            )
+            .child(
+                row()
+                    .gap(6.0)
+                    .child(
+                        Button::new("Sort by ink")
+                            .variant(if p.charset.order == RampOrder::ByDensity {
+                                ButtonVariant::Outline
+                            } else {
+                                ButtonVariant::Ghost
+                            })
+                            .on_press(|s: &mut State| s.prefs.settings.charset.order = RampOrder::ByDensity)
+                            .build(k),
+                    )
+                    .child(
+                        Button::new("As written")
+                            .variant(if p.charset.order == RampOrder::AsWritten {
+                                ButtonVariant::Outline
+                            } else {
+                                ButtonVariant::Ghost
+                            })
+                            .on_press(|s: &mut State| s.prefs.settings.charset.order = RampOrder::AsWritten)
+                            .build(k),
+                    ),
+            );
     }
+    if !s.preview.rejected.is_empty() {
+        mapping = mapping.child(theme::muted(format!("Ignored: {:?}", s.preview.rejected)));
+    }
+    mapping = mapping.child(choice(
+        s,
+        k,
+        overlays,
+        Choice {
+            key: "dither",
+            label: "Dithering",
+            current: p.dither,
+            options: &Dither::ALL,
+            name: Dither::label,
+            set: |s, v| s.prefs.settings.dither = v,
+            enabled: p.relevant(Control::Dither),
+        },
+    ));
 
-    section(ui, "Render", |ui| {
-        theme::slider(ui, Slider::new(&mut s.render.font_px, 4.0..=64.0).text("font px (PNG / MP4)"));
-        ui.add_enabled_ui(s.relevant(Control::TransparentBackground), |ui| {
-            ui.checkbox(&mut s.render.transparent_background, "transparent background")
-                .on_hover_text("PNG / WebP keep alpha; MP4, JPEG and BMP are composited onto the background.");
-        });
-    });
+    let mut tone = col().w_full().gap(8.0).child(
+        row()
+            .gap(6.0)
+            .child(
+                Button::new("Full image")
+                    .variant(if p.tone.detail == Detail::Full { ButtonVariant::Outline } else { ButtonVariant::Ghost })
+                    .on_press(|s: &mut State| s.prefs.settings.tone.detail = Detail::Full)
+                    .build(k),
+            )
+            .child(
+                Button::new("Edges only")
+                    .variant(if p.tone.detail == Detail::EdgesOnly {
+                        ButtonVariant::Outline
+                    } else {
+                        ButtonVariant::Ghost
+                    })
+                    .on_press(|s: &mut State| s.prefs.settings.tone.detail = Detail::EdgesOnly)
+                    .build(k),
+            ),
+    );
+    for (key, label, n) in [
+        ("brightness", "Brightness", Number::Brightness),
+        ("contrast", "Contrast", Number::Contrast),
+        ("gamma", "Gamma", Number::Gamma),
+        ("saturation", "Saturation", Number::Saturation),
+        ("sharpen", "Sharpen", Number::Sharpen),
+        ("edge-boost", "Edge boost", Number::EdgeBoost),
+        ("denoise", "Denoise", Number::Denoise),
+    ] {
+        tone = tone.child(number(s, k, key, label, n, true));
+    }
+    tone = tone.child(check(k, "auto-levels", "Auto levels", p.tone.auto_levels, true, |s| {
+        s.prefs.settings.tone.auto_levels = !s.prefs.settings.tone.auto_levels
+    }));
+    for (key, label, n, enabled) in [
+        ("black", "Black point", Number::Black, !p.tone.auto_levels),
+        ("white", "White point", Number::White, !p.tone.auto_levels),
+        ("shadows", "Shadows", Number::Shadows, true),
+        ("highlights", "Highlights", Number::Highlights, true),
+    ] {
+        tone = tone.child(number(s, k, key, label, n, enabled));
+    }
+    tone = tone
+        .child(check(k, "invert", "Invert", p.tone.polarity == Polarity::Inverted, true, |s| {
+            let p = &mut s.prefs.settings.tone.polarity;
+            *p = if *p == Polarity::Normal { Polarity::Inverted } else { Polarity::Normal };
+        }))
+        .child(
+            Button::new("Reset tone")
+                .on_press(|s: &mut State| s.prefs.settings.tone = Default::default())
+                .build(k)
+                .key("reset-tone"),
+        );
+
+    let mut color = col().w_full().gap(10.0).child(choice(
+        s,
+        k,
+        overlays,
+        Choice {
+            key: "color-mode",
+            label: "Colour mode",
+            current: p.color.mode,
+            options: &ColorMode::ALL,
+            name: ColorMode::label,
+            set: |s, v| s.prefs.settings.color.mode = v,
+            enabled: true,
+        },
+    ));
+    if p.relevant(Control::Foreground) {
+        color = color.child(color_button(k, "foreground", "Text", p.color.fg, ColorTarget::Foreground));
+    }
+    if p.relevant(Control::Background) {
+        color = color.child(color_button(k, "background", "Background", p.color.bg, ColorTarget::Background));
+    }
+    if p.relevant(Control::Foreground) {
+        color = color.child(
+            Button::new("Swap text / background")
+                .on_press(|s: &mut State| {
+                    let c = &mut s.prefs.settings.color;
+                    std::mem::swap(&mut c.fg, &mut c.bg);
+                })
+                .build(k),
+        );
+    }
+    color = color.child(choice(
+        s,
+        k,
+        overlays,
+        Choice {
+            key: "palette",
+            label: "Palette",
+            current: p.color.palette,
+            options: &PaletteKind::ALL,
+            name: PaletteKind::label,
+            set: |s, v| s.prefs.settings.color.palette = v,
+            enabled: p.relevant(Control::Palette),
+        },
+    ));
+    if p.color.palette == PaletteKind::Custom && p.relevant(Control::Palette) {
+        let mut palette = col().w_full().gap(6.0);
+        let mut swatches = row().w_full().gap(6.0);
+        for (i, &rgb) in p.color.custom_palette.iter().enumerate() {
+            if i > 0 && i % 7 == 0 {
+                palette = palette.child(swatches);
+                swatches = row().w_full().gap(6.0);
+            }
+            swatches = swatches.child(
+                el().key(format!("palette-{i}"))
+                    .size(27.0, 25.0)
+                    .radius(5.0)
+                    .fill(theme::rgb(rgb))
+                    .role("button")
+                    .label(format!("Palette colour {}", i + 1))
+                    .focusable(true)
+                    .help("Edit colour; right-click to remove")
+                    .on_press(move |s: &mut State| controls::open_color(s, ColorTarget::Palette(i), rgb))
+                    .on_secondary_press(move |s: &mut State, _, _| {
+                        if s.prefs.settings.color.custom_palette.len() > 1 {
+                            s.prefs.settings.color.custom_palette.remove(i);
+                        }
+                    }),
+            );
+        }
+        color = color
+            .child(
+                palette.child(swatches).child(
+                    Button::new("+")
+                        .on_press(|s: &mut State| s.prefs.settings.color.custom_palette.push(Rgb::new(128, 128, 128)))
+                        .build(k),
+                ),
+            )
+            .child(theme::muted("Right-click a colour to remove it."));
+    }
+    color = color.child(check(k, "chroma-key", "Chroma key", p.color.chroma_key.is_some(), true, |s| {
+        let key = &mut s.prefs.settings.color.chroma_key;
+        *key = if key.is_some() { None } else { Some(Rgb::new(0, 255, 0)) };
+    }));
+    if let Some(key) = p.color.chroma_key {
+        color = color.child(color_button(k, "chroma-color", "Key colour", key, ColorTarget::ChromaKey)).child(number(
+            s,
+            k,
+            "key-tolerance",
+            "Key tolerance",
+            Number::Tolerance,
+            true,
+        ));
+    }
+    let render =
+        col().w_full().gap(10.0).child(number(s, k, "font-size", "Font pixels (PNG / MP4)", Number::Font, true)).child(
+            check(
+                k,
+                "transparent",
+                "Transparent background",
+                p.render.transparent_background,
+                p.relevant(Control::TransparentBackground),
+                |s| s.prefs.settings.render.transparent_background = !s.prefs.settings.render.transparent_background,
+            ),
+        );
+
+    let mut panel = col()
+        .w_full()
+        .gap(12.0)
+        .child(section(s, k, "GRID", grid))
+        .child(section(s, k, "MAPPING", mapping))
+        .child(section(s, k, "TONE", tone))
+        .child(section(s, k, "COLOUR", color));
+    if s.is_video() {
+        let temporal = col()
+            .w_full()
+            .gap(8.0)
+            .child(number(s, k, "hysteresis", "Glyph hysteresis", Number::Hysteresis, p.relevant(Control::Hysteresis)))
+            .child(number(
+                s,
+                k,
+                "smoothing",
+                "Colour smoothing",
+                Number::Smoothing,
+                p.relevant(Control::ColorSmoothing),
+            ))
+            .child(theme::muted("Temporal settings apply to exports. Preview shows a single frame."));
+        panel = panel.child(section(s, k, "VIDEO STABILITY", temporal));
+    }
+    panel.child(section(s, k, "RENDER", render))
 }

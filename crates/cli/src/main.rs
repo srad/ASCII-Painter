@@ -139,7 +139,19 @@ fn main() -> Result<()> {
                     };
                     convert_video(
                         &style.ffmpeg()?,
-                        ExportPlan { input, output, format, settings, range: TimeRange { start, end }, quality },
+                        ExportPlan {
+                            input,
+                            output,
+                            format,
+                            settings,
+                            range: TimeRange { start, end },
+                            quality,
+                            policy: if force {
+                                ascii_painter_video::OutputPolicy::ReplaceExisting
+                            } else {
+                                ascii_painter_video::OutputPolicy::CreateNew
+                            },
+                        },
                     )
                 }
             }
@@ -191,6 +203,7 @@ struct ExportPlan {
     settings: Settings,
     range: TimeRange,
     quality: EncodeQuality,
+    policy: ascii_painter_video::OutputPolicy,
 }
 
 fn convert_video(paths: &FfmpegPaths, plan: ExportPlan) -> Result<()> {
@@ -198,7 +211,7 @@ fn convert_video(paths: &FfmpegPaths, plan: ExportPlan) -> Result<()> {
     if info.hdr {
         eprintln!("note: HDR input; colours are not tone-mapped and may look washed out");
     }
-    let job = ExportJob::start(
+    let job = ExportJob::start_with_policy(
         paths.clone(),
         ExportRequest {
             input: plan.input,
@@ -209,6 +222,7 @@ fn convert_video(paths: &FfmpegPaths, plan: ExportPlan) -> Result<()> {
             info,
             quality: plan.quality,
         },
+        plan.policy,
     );
     let mut stderr = std::io::stderr();
     while let Some(event) = job.recv() {
