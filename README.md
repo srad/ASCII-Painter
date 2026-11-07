@@ -72,7 +72,7 @@ after success. A destination changed during the export must be confirmed again.
 The checked-in toolchain pins Rust 1.99.1. Rune is pinned to one upstream revision; the small,
 vendored native-window patch is described in [`vendor/rune/UPSTREAM.md`](vendor/rune/UPSTREAM.md).
 Linux requires a Vulkan-capable GPU/driver, X11 or Wayland, and the desktop file chooser portal
-(`xdg-desktop-portal` plus a backend such as GTK, KDE or GNOME). See `build.sh` for system packages.
+(`xdg-desktop-portal` plus a backend such as GTK, KDE or GNOME). Build prerequisites are listed below.
 Tested configurations, dated evidence and remaining desktop / ARM64 acceptance gates are recorded in
 [`docs/rune-validation.md`](docs/rune-validation.md).
 
@@ -84,19 +84,63 @@ cargo test --workspace                    # video tests are skipped if ffmpeg is
 
 ### Release builds
 
-```sh
-.\build.ps1      # Windows -> dist\ascii-painter-windows-x64.zip
-./build.sh       # Linux   -> dist/ascii-painter-linux-<x64|arm64>.tar.gz
+From Windows, build and verify both x64 packages in one foreground command:
+
+```powershell
+.\build.ps1 -All -WslDistro Ubuntu -WslUser root
 ```
 
-Each script builds for the machine it runs on and produces a portable folder (and archive) with the GUI,
-the CLI and a pinned, checksum-verified ffmpeg / ffprobe next to them. On Linux the GUI needs the usual
-system libraries (see the header of `build.sh`).
+The WSL distribution and user are configurable. `root` selects the existing Rust installation on
+this development machine; omitting `-WslUser` uses the distribution's default user. WSL must expose
+this checkout and provide an Ubuntu 24.04 x64/glibc 2.39 environment.
+
+The version comes from the workspace's `Cargo.toml`. For version 0.2.0, upload these three files
+from `dist/releases/0.2.0/` to GitHub:
+
+```text
+ascii-painter-0.2.0-windows-x64.zip
+ascii-painter-0.2.0-linux-x64-glibc2.39.tar.gz
+ascii-painter-0.2.0-SHA256SUMS.txt
+```
+
+Use `-DestinationRoot 'target/my-releases'` to change the output root within this workspace.
+Other versions are preserved. Same-version replacement validates both packages first, keeps a
+recovery backup during publication, and rolls back a failed replacement. Only one combined release
+can use an output root at a time. Standalone builds remain available and write separate archives
+under `dist/native/windows-x64/` or `dist/native/linux-<x64|arm64>/`:
+
+```sh
+.\build.ps1
+bash ./build.sh
+```
+
+Both build environments need Python 3.12+, the pinned Rust toolchain and target. Windows needs
+Visual Studio C++ Build Tools with x64 tools and a Windows SDK. Ubuntu build prerequisites are:
+
+```sh
+sudo apt install python3 build-essential pkg-config binutils libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+rustup target add x86_64-unknown-linux-gnu --toolchain 1.99.1
+```
+
+Packages include the GUI, CLI, pinned FFmpeg/FFprobe, fonts embedded in the binaries, licenses,
+usage instructions and `BUILD-INFO.json` with source/version/target and inspected dependencies.
+Windows uses a static C runtime. Linux retains system C/C++ libraries, Vulkan drivers, X11/Wayland
+and desktop portal requirements, detailed in the packaged README. Build tools are not needed to run
+the packages. ARM64's existing native packaging path is retained; it is not covered by x64 validation.
+
+Every package passes architecture/dependency inspection, archive checks, extracted CLI image/video
+conversion with external FFmpeg excluded from discovery, and a headless GUI render before publication.
+Checksums use relative filenames; verify them from the release directory with `sha256sum -c *SHA256SUMS.txt`.
+These automated checks do not replace native desktop interaction acceptance.
+
+See [`docs/release-builds.md`](docs/release-builds.md) for the complete release procedure,
+configuration, validation details and recovery steps. GitHub upload is manual.
 
 > **Windows note:** security software that intercepts new executables (e.g. Norton Data Protector) can make
 > cargo fail with *"failed to link or copy ... build-script-build.exe ... Access denied"*. Exclude the
 > repository's `target` folder from it. Paths it already blocked can stay blocked after that, which is why
-> `build.ps1` builds into `target\package`; set `CARGO_TARGET_DIR` to build somewhere else.
+> release builds use separate platform directories in `target/package`; set `CARGO_TARGET_DIR` to
+> another directory inside the workspace when a fresh build location is needed.
 
 ## Project layout
 
@@ -115,8 +159,9 @@ system libraries (see the header of `build.sh`).
 
 ## Bundled ffmpeg
 
-Releases ship unmodified static builds of ffmpeg 9.0.2 as a separate program (GPL, includes libx264); ASCII Painter
-runs it as a child process. See [`LICENSES/ffmpeg-NOTICE.txt`](LICENSES/ffmpeg-NOTICE.txt) for the exact builds and source links.
+Releases ship unmodified FFmpeg and FFprobe 9.0.2 as separate programs (GPL, includes libx264);
+ASCII Painter runs them as child processes. Linux builds retain system C/C++ runtime dependencies.
+See [`LICENSES/ffmpeg-NOTICE.txt`](LICENSES/ffmpeg-NOTICE.txt) for the exact builds and source links.
 
 ## Licences
 

@@ -1,6 +1,7 @@
 # Build output
 /target/
 /dist/
+/tools/__pycache__/
 
 # Local editor state
 /.vs/

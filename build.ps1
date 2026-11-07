@@ -1,72 +1,21 @@
-# Build ASCII Painter for Windows x64 into dist\ascii-painter-windows-x64.zip.
-# The zip is portable: ascii-painter.exe (GUI), ascii-painter-cli.exe and a bundled ffmpeg/ffprobe.
-# Usage: .\build.ps1
-param([string]$DestinationRoot = 'dist')
+# Native Windows package: .\build.ps1
+# Complete release: .\build.ps1 -All -WslDistro Ubuntu -WslUser root
+[CmdletBinding()]
+param(
+    [switch]$All,
+    [string]$DestinationRoot = 'dist',
+    [string]$WslDistro = 'Ubuntu',
+    [string]$WslUser = ''
+)
 $ErrorActionPreference = 'Stop'
-Set-Location $PSScriptRoot
-
-# ffmpeg 9.0.2 essentials build (GPL, includes libx264), pinned by SHA-256.
-$FfmpegUrl = 'https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip'
-$FfmpegSha256 = '60F467265B1E312373DBCD92200C2618A74850F98D3D078E94296BB3FA2047BA'
-$FfmpegDir = 'ffmpeg-9.0.2-essentials_build/bin'
-
-# Own target folder: some security software (e.g. Norton) keeps blocking build-script paths in
-# target\release it once flagged, even after the folder is excluded.
-$target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { 'target\package' }
-$name = 'ascii-painter-windows-x64'
-$workspaceRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
-$distRoot = [IO.Path]::GetFullPath($(if ([IO.Path]::IsPathRooted($DestinationRoot)) { $DestinationRoot } else { Join-Path $workspaceRoot $DestinationRoot }))
-if (-not $distRoot.StartsWith($workspaceRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'The destination must be a subdirectory of this workspace.'
-}
-$out = Join-Path $distRoot $name
-$cache = 'dist/cache'
-
-Write-Host '==> Building (release)'
-cargo build --release --workspace --locked --target-dir $target
-if ($LASTEXITCODE -ne 0) {
-    throw @"
-cargo build failed. If the error is "failed to link or copy ... build-script-build.exe ... Access denied",
-security software (e.g. Norton) is blocking cargo's build scripts at those paths. Remove the blocked items
-from its history/quarantine, or build in a fresh folder: `$env:CARGO_TARGET_DIR='C:\temp\ascii-painter-target'; .\build.ps1
-"@
-}
-
-Write-Host '==> Fetching ffmpeg'
-New-Item -ItemType Directory -Force $cache | Out-Null
-$archive = "$cache/ffmpeg-windows.zip"
-if (-not (Test-Path $archive) -or (Get-FileHash $archive -Algorithm SHA256).Hash -ne $FfmpegSha256) {
-    Invoke-WebRequest -Uri $FfmpegUrl -OutFile "$archive.part"
-    $actual = (Get-FileHash "$archive.part" -Algorithm SHA256).Hash
-    if ($actual -ne $FfmpegSha256) {
-        Remove-Item "$archive.part"
-        throw "ffmpeg checksum mismatch: expected $FfmpegSha256, got $actual"
-    }
-    Move-Item -Force "$archive.part" $archive
-}
-
-Write-Host "==> Assembling $out"
-if (Test-Path -LiteralPath $out) {
-    if ((Get-Item -LiteralPath $out).LinkType) { throw 'Refusing to replace a linked package directory.' }
-    if ([IO.Path]::GetFullPath($out) -ne (Join-Path $distRoot $name)) { throw 'Unexpected package directory.' }
-    Remove-Item -LiteralPath $out -Recurse -Force
-}
-New-Item -ItemType Directory -Force $out | Out-Null
-Copy-Item "$target/release/ascii-painter.exe", "$target/release/ascii-painter-cli.exe", README.md $out
-Copy-Item -Recurse LICENSES $out
-New-Item -ItemType Directory -Path (Join-Path $out 'docs') -Force | Out-Null
-Copy-Item -LiteralPath 'docs/screenshots' -Destination (Join-Path $out 'docs/screenshots') -Recurse
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $archive))
-try {
-    foreach ($tool in 'ffmpeg.exe', 'ffprobe.exe') {
-        $entry = $zip.Entries | Where-Object { $_.FullName -eq "$FfmpegDir/$tool" }
-        if (-not $entry) { throw "$tool not found in the ffmpeg archive" }
-        [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path (Resolve-Path $out) $tool), $true)
-    }
-} finally {
-    $zip.Dispose()
-}
-
-Compress-Archive -Path $out -DestinationPath (Join-Path $distRoot "$name.zip") -Force
-Write-Host "==> Done: $distRoot/$name.zip (run $out/ascii-painter.exe)"
+$pythonCommand = Get-Command -Name python -CommandType Application -ErrorAction SilentlyContinue |
+    Where-Object { $_.Source -notlike '*\WindowsApps\*' } | Select-Object -First 1
+if (-not $pythonCommand) { throw 'Install Python 3.12+ and make python available on PATH.' }
+$releaseArguments = @(
+    (Join-Path -Path $PSScriptRoot -ChildPath 'tools/release_package.py'),
+    'build', '--platform', $(if ($All) { 'all' } else { 'windows' }),
+    '--destination-root', $DestinationRoot, '--wsl-distro', $WslDistro
+)
+if ($WslUser) { $releaseArguments += @('--wsl-user', $WslUser) }
+& $pythonCommand.Source @releaseArguments
+if ($LASTEXITCODE -ne 0) { throw "Release packaging failed (exit $LASTEXITCODE)." }
