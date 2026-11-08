@@ -89,8 +89,37 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
+fn has_headless_flag() -> bool {
+    let mut args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "--") {
+        args.remove(0);
+        if !args.is_empty() {
+            args.remove(0);
+        }
+    } else if args.first().is_some_and(|arg| !arg.to_string_lossy().starts_with('-')) {
+        args.remove(0);
+    }
+    let argv: Vec<String> = args.into_iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    rune::tooling::Args::parse_from(argv).headless()
+}
+
 fn main() {
+    let isolated = std::env::var_os("ASCII_PAINTER_CONFIG_DIR").map(std::path::PathBuf::from);
+    if !has_headless_flag() || isolated.is_some() {
+        if let Some(log_path) = ascii_painter_core::logging::init(isolated.as_deref()) {
+            log::info!(
+                "Starting ASCII Painter v{} ({}/{}, pid={}, log={})",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+                std::process::id(),
+                log_path.display()
+            );
+        }
+    }
     if let Err(error) = run() {
+        log::error!("ASCII Painter could not start: {error}");
+        log::logger().flush();
         eprintln!("ASCII Painter could not start: {error}");
         #[cfg(target_os = "windows")]
         rfd::MessageDialog::new()
@@ -100,4 +129,6 @@ fn main() {
             .show();
         std::process::exit(1);
     }
+    log::info!("ASCII Painter exited cleanly");
+    log::logger().flush();
 }

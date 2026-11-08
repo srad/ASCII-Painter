@@ -60,7 +60,9 @@ With *transparent background* on, `.png` and `.webp` keep alpha; `.jpg`, `.bmp` 
 
 User presets are TOML files in the platform config folder (`.../ASCII Painter/presets`).
 
-Application preferences use versioned `preferences.json` in the same config folder. On the first
+Application preferences use versioned `preferences.json` in the same config folder. Runtime diagnostics
+and crash backtraces are written to `ascii-painter.log` in that folder (rotated at 1 MiB across up to
+three files: `ascii-painter.log`, `.1` and `.2`). On the first
 Rune launch, previous application settings and normal/maximized/fullscreen window geometry are
 imported from `app.ron` when present; that file and preset files are left untouched. Corrupt or newer
 JSON preferences produce a visible warning and are not overwritten. Exporting over an existing file
@@ -94,13 +96,13 @@ The WSL distribution and user are configurable. `root` selects the existing Rust
 this development machine; omitting `-WslUser` uses the distribution's default user. WSL must expose
 this checkout and provide an Ubuntu 24.04 x64/glibc 2.39 environment.
 
-The version comes from the workspace's `Cargo.toml`. For version 0.2.0, upload these three files
-from `dist/releases/0.2.0/` to GitHub:
+The version comes from the workspace's `Cargo.toml`. For version 0.2.1, upload these three files
+from `dist/releases/0.2.1/` to GitHub:
 
 ```text
-ascii-painter-0.2.0-windows-x64.zip
-ascii-painter-0.2.0-linux-x64-glibc2.39.tar.gz
-ascii-painter-0.2.0-SHA256SUMS.txt
+ascii-painter-0.2.1-windows-x64.zip
+ascii-painter-0.2.1-linux-x64-glibc2.39.tar.gz
+ascii-painter-0.2.1-SHA256SUMS.txt
 ```
 
 Use `-DestinationRoot 'target/my-releases'` to change the output root within this workspace.
@@ -124,7 +126,7 @@ rustup target add x86_64-unknown-linux-gnu --toolchain 1.99.1
 
 Packages include the GUI, CLI, pinned FFmpeg/FFprobe, fonts embedded in the binaries, licenses,
 usage instructions and `BUILD-INFO.json` with source/version/target and inspected dependencies.
-Windows uses a static C runtime. Linux retains system C/C++ libraries, Vulkan drivers, X11/Wayland
+Windows uses a static C runtime. Linux retains system C/GCC libraries, Vulkan drivers, X11/Wayland
 and desktop portal requirements, detailed in the packaged README. Build tools are not needed to run
 the packages. ARM64's existing native packaging path is retained; it is not covered by x64 validation.
 
@@ -146,7 +148,7 @@ configuration, validation details and recovery steps. GitHub upload is manual.
 
 | Crate | Purpose |
 |---|---|
-| `crates/core` | Conversion library: tone, dithering, glyph matching, colour, renderers (no UI, no ffmpeg) |
+| `crates/core` | Conversion library and rotating file logger: tone, dithering, glyph matching, colour, renderers (no UI, no ffmpeg) |
 | `crates/video` | ffmpeg discovery, probe, decode / encode pipes and the export pipeline |
 | `crates/gui` | Rune / Rune Kit application (`ascii-painter`), owned media jobs and image compositor |
 | `crates/cli` | Command-line tool (`ascii-painter-cli`) |
@@ -160,7 +162,7 @@ configuration, validation details and recovery steps. GitHub upload is manual.
 ## Bundled ffmpeg
 
 Releases ship unmodified FFmpeg and FFprobe 9.0.2 as separate programs (GPL, includes libx264);
-ASCII Painter runs them as child processes. Linux builds retain system C/C++ runtime dependencies.
+ASCII Painter runs them as child processes. Linux builds retain system C/GCC runtime dependencies.
 See [`LICENSES/ffmpeg-NOTICE.txt`](LICENSES/ffmpeg-NOTICE.txt) for the exact builds and source links.
 
 ## Licences

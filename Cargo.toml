@@ -4,7 +4,7 @@ members = ["crates/core", "crates/video", "crates/gui", "crates/cli"]
 exclude = ["vendor/rune"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.99"
 license = "MIT OR Apache-2.0"
@@ -20,6 +20,7 @@ directories = "6.0.0"
 rune = { path = "vendor/rune", default-features = false, features = ["accessibility", "native-file-dialog", "svg"] }
 rune-kit = { git = "https://github.com/anomalyco/rune", rev = "ccb4823f55749dfa667891ef7f8427017e960056" }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "ico", "pnm", "tga", "qoi", "hdr", "rayon"] }
+log = "0.4.34"
 rayon = "1.12.0"
 rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }

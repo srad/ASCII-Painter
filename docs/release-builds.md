@@ -86,13 +86,13 @@ version. Packaging reads Cargo metadata with `--locked` and requires the GUI and
 CLI versions to agree. Full versions, including prerelease/build suffixes, are
 preserved in filenames.
 
-For version 0.2.0, the combined command produces exactly these upload assets:
+For version 0.2.1, the combined command produces exactly these upload assets:
 
 ```text
-dist/releases/0.2.0/
-  ascii-painter-0.2.0-windows-x64.zip
-  ascii-painter-0.2.0-linux-x64-glibc2.39.tar.gz
-  ascii-painter-0.2.0-SHA256SUMS.txt
+dist/releases/0.2.1/
+  ascii-painter-0.2.1-windows-x64.zip
+  ascii-painter-0.2.1-linux-x64-glibc2.39.tar.gz
+  ascii-painter-0.2.1-SHA256SUMS.txt
 ```
 
 Each archive contains one directory with the same base name as the archive:
@@ -178,10 +178,10 @@ Use the complete release directory printed after `Release verified`. Check its
 manifest from that directory on Linux/WSL:
 
 ```sh
-sha256sum --check ascii-painter-0.2.0-SHA256SUMS.txt
+sha256sum --check ascii-painter-0.2.1-SHA256SUMS.txt
 ```
 
 The UTF-8 manifest uses LF line endings and relative archive filenames. Upload
-both archives and the manifest to the GitHub release for version 0.2.0. This
+both archives and the manifest to the GitHub release for version 0.2.1. This
 workflow builds local files only; creating tags/releases and uploading assets are
 manual actions. Build outputs and caches are ignored by Git.

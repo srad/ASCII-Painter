@@ -124,10 +124,13 @@ impl ExportJob {
     ) -> Self {
         let (tx, events) = channel();
         let flag = cancel.clone();
-        let thread = std::thread::spawn(move || {
-            let result = run(&paths, req, &flag, &tx, policy, hooks);
-            let _ = tx.send(ExportEvent::Finished(result));
-        });
+        let thread = std::thread::Builder::new()
+            .name("video-export".into())
+            .spawn(move || {
+                let result = run(&paths, req, &flag, &tx, policy, hooks);
+                let _ = tx.send(ExportEvent::Finished(result));
+            })
+            .expect("spawn video export thread");
         Self { cancel, events, thread: Some(thread) }
     }
 
@@ -284,35 +287,41 @@ fn render(
 
     std::thread::scope(|scope| {
         let (frame_tx, frame_rx) = sync_channel(QUEUE);
-        let decoder = scope.spawn(move || -> Result<(), VideoError> {
-            loop {
-                if cancel.is_cancelled() {
-                    return Ok(()); // dropping the reader kills ffmpeg
-                }
-                match reader.next_frame()? {
-                    Some(frame) => {
-                        if frame_tx.send(frame).is_err() {
-                            return Ok(());
-                        }
+        let decoder = std::thread::Builder::new()
+            .name("video-decoder".into())
+            .spawn_scoped(scope, move || -> Result<(), VideoError> {
+                loop {
+                    if cancel.is_cancelled() {
+                        return Ok(()); // dropping the reader kills ffmpeg
                     }
-                    None => return reader.finish(),
+                    match reader.next_frame()? {
+                        Some(frame) => {
+                            if frame_tx.send(frame).is_err() {
+                                return Ok(());
+                            }
+                        }
+                        None => return reader.finish(),
+                    }
                 }
-            }
-        });
+            })
+            .expect("spawn video decoder thread");
 
         let (out_tx, out_rx) = sync_channel::<Rendered>(QUEUE);
-        let writer = scope.spawn(move || -> Result<(), VideoError> {
-            for item in out_rx {
-                if cancel.is_cancelled() {
-                    return Ok(());
+        let writer = std::thread::Builder::new()
+            .name("video-writer".into())
+            .spawn_scoped(scope, move || -> Result<(), VideoError> {
+                for item in out_rx {
+                    if cancel.is_cancelled() {
+                        return Ok(());
+                    }
+                    if let Err(write_error) = sink.write(item) {
+                        // A broken pipe usually means ffmpeg failed; its stderr is the useful error.
+                        return Err(sink.finish().err().unwrap_or(write_error));
+                    }
                 }
-                if let Err(write_error) = sink.write(item) {
-                    // A broken pipe usually means ffmpeg failed; its stderr is the useful error.
-                    return Err(sink.finish().err().unwrap_or(write_error));
-                }
-            }
-            if cancel.is_cancelled() { Ok(()) } else { sink.finish() }
-        });
+                if cancel.is_cancelled() { Ok(()) } else { sink.finish() }
+            })
+            .expect("spawn video writer thread");
 
         let started = Instant::now();
         let mut last_report = Instant::now() - Duration::from_secs(1);

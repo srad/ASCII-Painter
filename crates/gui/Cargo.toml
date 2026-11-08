@@ -14,6 +14,7 @@ ascii-painter-core.workspace = true
 ascii-painter-video.workspace = true
 anyhow.workspace = true
 image.workspace = true
+log.workspace = true
 serde.workspace = true
 rune.workspace = true
 rune-kit.workspace = true

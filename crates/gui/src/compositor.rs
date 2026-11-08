@@ -173,6 +173,7 @@ impl Compositor<State> for ViewerCompositor {
         let limit = f.device.limits().max_texture_dimension_2d.min(8192);
         f.rt.state.texture_limit.store(limit, Ordering::Relaxed);
         if self.gpu.as_ref().is_none_or(|g| g.key != f.device_key()) {
+            log::info!("Initialized viewer GPU pipeline (max_texture_dimension_2d={limit}, format={:?})", f.format);
             self.gpu = Some(Gpu::new(f.device, f.device_key()));
         }
         let gpu = self.gpu.as_mut().unwrap();

@@ -1,6 +1,6 @@
 ASCII Painter ships unmodified builds of FFmpeg 9.0.2 (ffmpeg and ffprobe) as separate
 programs. ASCII Painter runs them as child processes and does not link to them.
-The Linux builds retain dependencies on system C/C++ runtime libraries.
+The Linux builds retain dependencies on system C/GCC runtime libraries.
 
 These builds include GPL components (libx264) and are therefore distributed under the
 GNU General Public License, version 3 or later:
@@ -11,6 +11,6 @@ https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
 
 Build sources and their build scripts:
 - Windows: https://github.com/GyanD/codexffmpeg/releases/tag/9.0.2 (https://www.gyan.dev/ffmpeg/builds/)
-- Linux: https://ffmpeg.martin-riedl.de/ (build scripts are linked from that page)
+- Linux: https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-10-31-12-59 (https://github.com/BtbN/FFmpeg-Builds)
 
 Exact archives and checksums: tools/release_package.py in the ASCII Painter source.

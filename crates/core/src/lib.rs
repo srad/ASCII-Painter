@@ -8,6 +8,7 @@ pub mod color;
 mod converter;
 pub mod glyphs;
 pub mod load;
+pub mod logging;
 pub mod mapping;
 pub mod preprocess;
 pub mod presets;

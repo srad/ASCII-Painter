@@ -209,6 +209,9 @@ impl State {
         if let Some(path) = isolated.as_ref().map(|p| p.join("preferences.json")).or_else(preferences::config_path) {
             let legacy = if isolated.is_some() { None } else { preferences::legacy_path() };
             let loaded = preferences::load(&path, legacy.as_deref());
+            if let Some(warning) = &loaded.warning {
+                log::warn!("Preferences load warning ({}): {warning}", path.display());
+            }
             s.prefs = loaded.value;
             s.warning = loaded.warning;
             if loaded.writable {
@@ -222,6 +225,9 @@ impl State {
         s.charset = TextEdit::new(s.prefs.settings.charset.custom.clone());
         s.preset_dir = isolated.map(|p| p.join("presets")).or_else(presets::user_dir);
         s.reload_presets();
+        for error in &s.preset_errors {
+            log::warn!("User preset load error: {error}");
+        }
         s.locate_ffmpeg();
         s.initial_file = initial_file;
         crate::controls::sync_numbers(&mut s);
@@ -248,6 +254,10 @@ impl State {
     }
     pub fn locate_ffmpeg(&mut self) {
         self.ffmpeg = FfmpegPaths::locate(self.prefs.ffmpeg_dir.as_deref()).map_err(|e| e.to_string());
+        match &self.ffmpeg {
+            Ok(paths) => log::info!("FFmpeg ready: ffmpeg={}, ffprobe={}", paths.ffmpeg.display(), paths.ffprobe.display()),
+            Err(error) => log::warn!("FFmpeg unavailable: {error}"),
+        }
     }
 
     pub fn dirty(&mut self) {
@@ -390,6 +400,13 @@ impl State {
         }
     }
     fn start_export(&mut self, intent: ExportIntent) {
+        log::info!(
+            "Starting export: input={}, output={}, format={:?}, quality={:?}",
+            intent.input.display(),
+            intent.output.display(),
+            intent.format,
+            intent.quality
+        );
         let stage = match intent.stage() {
             Ok(stage) => stage,
             Err(error) => {
@@ -552,7 +569,12 @@ impl State {
                 self.preview.rejected = output.rejected;
                 self.preview.error = None;
             }
-            Err(error) => self.preview.error = Some(error),
+            Err(error) => {
+                if error != "cancelled" {
+                    log::warn!("Preview conversion failed: {error}");
+                }
+                self.preview.error = Some(error);
+            }
         }
         true
     }
@@ -585,6 +607,7 @@ pub fn poll(s: &mut State, now: f64, tx: &mut Tx) -> bool {
     if let Some(handle) = &s.app_handle
         && let Some(error) = handle.window_error()
     {
+        log::error!("Window error reported by Rune: {error}");
         *s.fatal.lock().unwrap() = Some(error.clone());
         s.startup_error = Some(error);
         close(s, tx);
@@ -609,6 +632,14 @@ pub fn poll(s: &mut State, now: f64, tx: &mut Tx) -> bool {
             if generation == s.load_generation {
                 match result {
                     Ok(loaded) => {
+                        let size = loaded.source.display_size();
+                        log::info!(
+                            "Opened {} ({}x{}, video={})",
+                            loaded.source.path.display(),
+                            size.w,
+                            size.h,
+                            loaded.source.is_video()
+                        );
                         if !OutputFormat::options(loaded.source.is_video()).contains(&s.format) {
                             s.format = if loaded.source.is_video() { OutputFormat::Mp4 } else { OutputFormat::Png };
                         }
@@ -620,6 +651,7 @@ pub fn poll(s: &mut State, now: f64, tx: &mut Tx) -> bool {
                         s.dirty();
                     }
                     Err(error) => {
+                        log::warn!("Failed to open media: {error}");
                         s.error(error);
                         s.dirty();
                     }
@@ -671,6 +703,7 @@ pub fn poll(s: &mut State, now: f64, tx: &mut Tx) -> bool {
         changed |= s.accept_preview(response);
     }
     if s.worker.as_ref().is_some_and(PreviewWorker::is_finished) {
+        log::error!("Preview worker thread stopped unexpectedly");
         s.worker.take();
         s.preview.waiting = false;
         s.preview.error =
@@ -694,12 +727,19 @@ pub fn poll(s: &mut State, now: f64, tx: &mut Tx) -> bool {
         changed = true;
         match result {
             Ok(path) => {
+                log::info!("Export completed: {}", path.display());
                 let text = format!("Saved {}", path.display());
                 s.status = Some(text.clone());
                 s.toast = Some(Toast { text, error: false, until: now + 6.0 });
             }
-            Err(error) if error == "cancelled" => s.status = Some("Export cancelled".into()),
-            Err(error) => s.error(error),
+            Err(error) if error == "cancelled" => {
+                log::info!("Export cancelled");
+                s.status = Some("Export cancelled".into());
+            }
+            Err(error) => {
+                log::error!("Export failed: {error}");
+                s.error(error);
+            }
         }
     }
     if s.toast.as_ref().is_some_and(|t| now >= t.until) {
@@ -718,7 +758,9 @@ pub fn poll(s: &mut State, now: f64, tx: &mut Tx) -> bool {
     if let Some(writer) = &s.writer {
         let errors: Vec<_> = writer.errors.try_iter().collect();
         if !errors.is_empty() {
-            s.warning = Some(format!("Preferences could not be saved: {}", errors.join("; ")));
+            let joined = errors.join("; ");
+            log::warn!("Preferences could not be saved: {joined}");
+            s.warning = Some(format!("Preferences could not be saved: {joined}"));
             changed = true;
         }
     }

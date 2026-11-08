@@ -297,7 +297,7 @@ dependencies = [
 
 [[package]]
 name = "ascii-painter-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "ascii-painter-core",
@@ -311,11 +311,12 @@ dependencies = [
 
 [[package]]
 name = "ascii-painter-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "ab_glyph",
  "directories",
  "image",
+ "log",
  "rayon",
  "serde",
  "thiserror 2.0.21",
@@ -325,7 +326,7 @@ dependencies = [
 
 [[package]]
 name = "ascii-painter-gui"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "ascii-painter-core",
@@ -333,6 +334,7 @@ dependencies = [
  "bytemuck",
  "directories",
  "image",
+ "log",
  "naga",
  "rfd",
  "ron",
@@ -346,7 +348,7 @@ dependencies = [
 
 [[package]]
 name = "ascii-painter-video"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "ascii-painter-core",
  "image",

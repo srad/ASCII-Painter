@@ -89,11 +89,31 @@ class ReleaseTests(unittest.TestCase):
         cached = self.root / "cache/tool.zip"
         cached.parent.mkdir()
         cached.write_bytes(b"existing")
-        with mock.patch.object(release.urllib.request, "urlopen", return_value=io.BytesIO(b"bad download")):
+        with mock.patch.object(release.urllib.request, "urlopen", return_value=io.BytesIO(b"bad download")) as opened:
             with self.assertRaisesRegex(release.ReleaseError, "checksum mismatch"):
                 release.fetch(path=cached, url="https://example.invalid/tool.zip", expected="0" * 64)
+        request = opened.call_args.args[0]
+        self.assertIsInstance(request, release.urllib.request.Request)
+        self.assertEqual(request.get_header("User-agent"), "ascii-painter-release-package")
         self.assertEqual(cached.read_bytes(), b"existing")
         self.assertEqual(list(cached.parent.iterdir()), [cached])
+
+    def test_linux_media_extracts_ffmpeg_and_ffprobe_from_tar_xz(self):
+        archive = self.root / "dist/cache/ffmpeg-linux-x64.tar.xz"
+        archive.parent.mkdir(parents=True)
+        prefix = "ffmpeg-n9.0.2-39-g7adfbe40dc-linux64-gpl-9.0/bin"
+        with tarfile.open(name=archive, mode="w:xz") as tar:
+            for tool in ("ffmpeg", "ffprobe"):
+                payload = f"binary-{tool}".encode()
+                entry = tarfile.TarInfo(name=f"{prefix}/{tool}")
+                entry.size = len(payload)
+                tar.addfile(tarinfo=entry, fileobj=io.BytesIO(payload))
+        folder = self.root / "out"
+        folder.mkdir()
+        with mock.patch.object(release, "fetch", return_value=archive):
+            release.install_media(folder=folder, info={"platform": "linux", "architecture": "x64"})
+        for tool in ("ffmpeg", "ffprobe"):
+            self.assertEqual((folder / tool).read_bytes(), f"binary-{tool}".encode())
 
     def test_missing_tool_and_failed_child_fail_explicitly(self):
         with mock.patch.object(release.shutil, "which", return_value=None):

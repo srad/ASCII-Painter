@@ -14,8 +14,8 @@ requires a working Direct3D 12 graphics driver and Windows system components.
 
 Extract the complete tar.gz and run `./ascii-painter`. The x64 release targets
 Ubuntu 24.04 or a compatible distribution with glibc 2.39 or newer. It uses the
-system C/C++ runtimes (`libc6`, `libgcc-s1`, `libstdc++6`; the bundled media tools
-require GLIBCXX 3.4.30 and CXXABI 1.3.13). Executable permissions are in the archive.
+system C/GCC runtimes (`libc6`, `libgcc-s1`). Executable permissions are in the
+archive.
 
 The GUI also requires a Vulkan driver/loader, X11 or Wayland, keyboard libraries,
 and a running desktop portal with a file chooser backend. On Ubuntu, common
@@ -38,8 +38,10 @@ For command-line usage, run `./ascii-painter-cli --help` (PowerShell:
 ```
 
 `BUILD-INFO.json` records the application version, architecture, toolchain,
-source revision when available, and inspected binary dependencies. Build tools,
-Python and Rust are not needed to run this package.
+source revision when available, and inspected binary dependencies. Runtime
+diagnostics and crash backtraces are written to `ascii-painter.log` in the
+application config folder (rotated at 1 MiB, keeping up to three files). Build
+tools, Python and Rust are not needed to run this package.
 
 ## Licenses
 

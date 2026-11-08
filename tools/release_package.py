@@ -36,23 +36,15 @@ MEDIA = {
         ),
     },
     "linux-x64": {
-        "ffmpeg-linux-x64.zip": (
-            "https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffmpeg.zip",
-            "fa8ecf4abbd290d98f7d188b8649cc6b391ae209a98452be955a15aab1909d7f",
-        ),
-        "ffprobe-linux-x64.zip": (
-            "https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffprobe.zip",
-            "3f428c49070be3d24ec338602b76d412e401ffcb8a5641ef0e729181a232fc32",
+        "ffmpeg-linux-x64.tar.xz": (
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/ffmpeg-n9.0.2-39-g7adfbe40dc-linux64-gpl-9.0.tar.xz",
+            "73e29a56974ae5a651133a04584c7483b21afe941e17dc91d79814a758b608d3",
         ),
     },
     "linux-arm64": {
-        "ffmpeg-linux-arm64.zip": (
-            "https://ffmpeg.martin-riedl.de/download/linux/arm64/1789931697_9.0.2/ffmpeg.zip",
-            "93a76ae90db5474eecdf951a729857c64f3de23567228d6a7d5e6e8e3cd1021b",
-        ),
-        "ffprobe-linux-arm64.zip": (
-            "https://ffmpeg.martin-riedl.de/download/linux/arm64/1789931697_9.0.2/ffprobe.zip",
-            "bcbe80fb741c180083327afaf5434812e006b33cacde2016b9aeaf6936128330",
+        "ffmpeg-linux-arm64.tar.xz": (
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/ffmpeg-n9.0.2-39-g7adfbe40dc-linuxarm64-gpl-9.0.tar.xz",
+            "6cad88ae5bcec356cfc5d7979a036cc4007128201928a0cf243df3db483276cc",
         ),
     },
 }
@@ -203,7 +195,8 @@ def fetch(*, path: Path, url: str, expected: str) -> Path:
     descriptor, temporary = tempfile.mkstemp(prefix=path.name + ".", suffix=".part", dir=path.parent)
     temporary = Path(temporary)
     try:
-        with os.fdopen(descriptor, "wb") as output, urllib.request.urlopen(url, timeout=30) as response:
+        request = urllib.request.Request(url=url, headers={"User-Agent": "ascii-painter-release-package"})
+        with os.fdopen(descriptor, "wb") as output, urllib.request.urlopen(request, timeout=30) as response:
             shutil.copyfileobj(response, output)
         actual = digest(temporary)
         if actual != expected:
@@ -215,16 +208,29 @@ def fetch(*, path: Path, url: str, expected: str) -> Path:
 
 
 def install_media(*, folder: Path, info: dict) -> None:
+    key = f"{info['platform']}-{info['architecture']}"
     archives = {name: fetch(path=ROOT / "dist/cache" / name, url=url, expected=sha)
-                for name, (url, sha) in MEDIA[f"{info['platform']}-{info['architecture']}"].items()}
-    for tool in ("ffmpeg", "ffprobe"):
-        windows = info["platform"] == "windows"
-        archive = archives["ffmpeg-windows.zip" if windows else f"{tool}-linux-{info['architecture']}.zip"]
-        member = f"ffmpeg-9.0.2-essentials_build/bin/{tool}.exe" if windows else tool
-        destination = folder / (tool + (".exe" if windows else ""))
-        with zipfile.ZipFile(archive) as z, z.open(member) as source, destination.open("wb") as output:
-            shutil.copyfileobj(source, output)
-        destination.chmod(0o755)
+                for name, (url, sha) in MEDIA[key].items()}
+    if info["platform"] == "windows":
+        with zipfile.ZipFile(archives["ffmpeg-windows.zip"]) as z:
+            for tool in ("ffmpeg", "ffprobe"):
+                member = f"ffmpeg-9.0.2-essentials_build/bin/{tool}.exe"
+                destination = folder / f"{tool}.exe"
+                with z.open(member) as source, destination.open("wb") as output:
+                    shutil.copyfileobj(source, output)
+                destination.chmod(mode=0o755)
+    else:
+        archive = archives[f"ffmpeg-{key}.tar.xz"]
+        prefix = f"ffmpeg-n9.0.2-39-g7adfbe40dc-linux{'64' if info['architecture'] == 'x64' else 'arm64'}-gpl-9.0/bin"
+        with tarfile.open(name=archive, mode="r:xz") as tar:
+            for tool in ("ffmpeg", "ffprobe"):
+                source = tar.extractfile(f"{prefix}/{tool}")
+                if source is None:
+                    raise ReleaseError(f"Missing {tool} in {archive}")
+                destination = folder / tool
+                with source, destination.open("wb") as output:
+                    shutil.copyfileobj(source, output)
+                destination.chmod(mode=0o755)
 
 
 def pe_imports(path: Path) -> list[str]:
@@ -375,7 +381,7 @@ def smoke(*, folder: Path, work: Path, info: dict) -> None:
     if execute("ascii-painter-cli", ["--version"]).strip().split()[-1] != info["version"]:
         raise ReleaseError("The packaged CLI version does not match the filename.")
     for tool in ("ffmpeg", "ffprobe"):
-        if not execute(tool, ["-version"]).startswith(f"{tool} version {FFMPEG_VERSION}"):
+        if not re.match(rf"{tool} version n?{re.escape(FFMPEG_VERSION)}\b", execute(tool, ["-version"])):
             raise ReleaseError(f"Wrong packaged {tool} version.")
     source, image, still, video = [work / name for name in ("input.mp4", "input.png", "still.png", "video.mp4")]
     execute("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=64x48:rate=3:duration=1",

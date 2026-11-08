@@ -18,4 +18,17 @@ fn headless_tree_reports_the_accepted_source_in_the_native_title() {
         let tree: serde_json::Value = serde_json::from_slice(&std::fs::read(tree).unwrap()).unwrap();
         assert_eq!(tree["title"], title, "scene={scene}");
     }
+    let config = dir.path().join("config");
+    let tree = dir.path().join("logged.json");
+    let result = Command::new(env!("CARGO_BIN_EXE_ascii-painter"))
+        .env("ASCII_PAINTER_CONFIG_DIR", &config)
+        .args(["--scene", "empty", "--tree"])
+        .arg(&tree)
+        .args(["--at", "0.5", "--scale", "1"])
+        .output()
+        .unwrap();
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    let log = std::fs::read_to_string(config.join("ascii-painter.log")).unwrap();
+    assert!(log.contains("Starting ASCII Painter v"));
+    assert!(log.contains("ASCII Painter exited cleanly"));
 }
